@@ -14,7 +14,8 @@ const fs = require('fs');
 const path = require('path');
 
 const OPENAPI_URL = 'https://api.muapi.ai/openapi.json';
-const LLMSTXT_PATH = String.raw`C:\Users\noobdenial\Nextcloud\Web Projects\MuAPI-ai_webapp\MuAPI_llms.md`;
+// Optional local markdown for category metadata — set via env or place file at this path
+const LLMSTXT_PATH = process.env.MUAPI_LLMSTXT_PATH || path.join(__dirname, '..', 'MuAPI_llms.md');
 const OUTPUT_SQL = path.join(__dirname, '..', 'migrations', '0002_seed.sql');
 const CACHED_SPEC = path.join(__dirname, '..', '.cache', 'openapi.json');
 
