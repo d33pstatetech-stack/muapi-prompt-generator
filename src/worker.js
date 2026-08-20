@@ -231,6 +231,35 @@ async function handleApiRoute(request, env, path) {
     return jsonResponse({ estimatedCost: model.cost, currency: model.cost_currency, source: 'catalog_fallback' });
   }
 
+  // ─── POST /api/upload ───
+  if (path === '/api/upload' && request.method === 'POST') {
+    if (!MUAPI_API_KEY) {
+      return jsonResponse({ error: 'MUAPI_API_KEY not configured' }, 500);
+    }
+    try {
+      const formData = await request.formData();
+      const file = formData.get('file');
+      if (!file) {
+        return jsonResponse({ error: 'No file provided' }, 400);
+      }
+      // Forward to MuAPI upload endpoint
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', file);
+      const uploadRes = await fetch(`${base}/upload_file`, {
+        method: 'POST',
+        headers: { 'x-api-key': MUAPI_API_KEY },
+        body: uploadFormData,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        return jsonResponse({ error: 'Upload failed', details: uploadData }, uploadRes.status);
+      }
+      return jsonResponse({ url: uploadData.url || uploadData.output_url || uploadData });
+    } catch (e) {
+      return jsonResponse({ error: 'Upload error: ' + e.message }, 500);
+    }
+  }
+
   // ─── POST /api/sync ───
   if (path === '/api/sync' && request.method === 'POST') {
     return await syncCatalog(env);
