@@ -192,12 +192,12 @@
   </main>
 
   <!-- Image Upload Modal -->
-  <div id="uploadModal" class="modal hidden">
-    <div class="modal-backdrop"></div>
+  <div id="uploadModal" class="modal" style="display: none;">
+    <div class="modal-backdrop" id="uploadBackdrop"></div>
     <div class="modal-content">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-lg font-semibold">Upload Image</h3>
-        <button id="closeUploadModal" class="icon-btn"><i class="fas fa-times"></i></button>
+        <button id="closeUploadModal" class="icon-btn" type="button"><i class="fas fa-times"></i></button>
       </div>
       <div id="dropZone" class="drop-zone">
         <i class="fas fa-cloud-upload-alt text-3xl text-gray-600 mb-3"></i>
@@ -215,15 +215,15 @@
       </div>
       <div class="flex gap-2">
         <input id="imageUrlInput" type="url" class="input flex-1" placeholder="Paste image URL...">
-        <button id="btnUseUrl" class="btn-primary-sm">Use URL</button>
+        <button id="btnUseUrl" class="btn-primary-sm" type="button">Use URL</button>
       </div>
       <div id="uploadPreview" class="upload-preview hidden">
         <img id="uploadPreviewImg" src="" alt="Preview">
         <div id="uploadStatus" class="text-xs text-gray-400 mt-2"></div>
       </div>
       <div class="flex justify-end gap-2 mt-4">
-        <button id="btnCancelUpload" class="btn-secondary">Cancel</button>
-        <button id="btnConfirmUpload" class="btn-primary-sm hidden">Use This Image</button>
+        <button id="btnCancelUpload" class="btn-secondary" type="button">Cancel</button>
+        <button id="btnConfirmUpload" class="btn-primary-sm hidden" type="button">Use This Image</button>
       </div>
     </div>
   </div>

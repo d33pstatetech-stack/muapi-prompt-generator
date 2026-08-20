@@ -686,6 +686,9 @@ body {
   align-items: center;
   justify-content: center;
 }
+.modal[style*="display: none"] {
+  display: none !important;
+}
 .modal-backdrop {
   position: absolute;
   inset: 0;

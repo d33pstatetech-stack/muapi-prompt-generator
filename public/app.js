@@ -359,7 +359,7 @@ function wireParamEvents(group, name, spec, pType) {
 function openUploadModal(paramName, isMulti) {
   uploadTarget = { paramName, isMulti };
   const modal = document.getElementById('uploadModal');
-  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
   document.getElementById('uploadPreview').classList.add('hidden');
   document.getElementById('btnConfirmUpload').classList.add('hidden');
   document.getElementById('imageUrlInput').value = '';
@@ -367,7 +367,7 @@ function openUploadModal(paramName, isMulti) {
 }
 
 function closeUploadModal() {
-  document.getElementById('uploadModal').classList.add('hidden');
+  document.getElementById('uploadModal').style.display = 'none';
   uploadTarget = null;
 }
 
@@ -782,32 +782,48 @@ function setupEventListeners() {
     navigator.clipboard.writeText(document.getElementById('payloadPreview').textContent);
   });
 
-  // Upload modal
-  document.getElementById('closeUploadModal')?.addEventListener('click', closeUploadModal);
-  document.getElementById('btnCancelUpload')?.addEventListener('click', closeUploadModal);
-  document.querySelector('.modal-backdrop')?.addEventListener('click', closeUploadModal);
+  // Upload modal - use getElementById for reliability
+  const closeBtn = document.getElementById('closeUploadModal');
+  const cancelBtn = document.getElementById('btnCancelUpload');
+  const backdrop = document.getElementById('uploadBackdrop');
+  const confirmBtn = document.getElementById('btnConfirmUpload');
 
-  document.getElementById('fileInput')?.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file && uploadTarget) uploadFile(file, uploadTarget.paramName);
-  });
+  if (closeBtn) closeBtn.addEventListener('click', closeUploadModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeUploadModal);
+  if (backdrop) backdrop.addEventListener('click', closeUploadModal);
 
-  document.getElementById('btnUseUrl')?.addEventListener('click', () => {
-    const url = document.getElementById('imageUrlInput').value.trim();
-    if (url && uploadTarget) {
-      if (uploadTarget.isMulti) {
-        if (!uploadedImages[uploadTarget.paramName]) uploadedImages[uploadTarget.paramName] = [];
-        uploadedImages[uploadTarget.paramName].push(url);
-        currentParams[uploadTarget.paramName] = [...uploadedImages[uploadTarget.paramName]];
-      } else {
-        uploadedImages[uploadTarget.paramName] = url;
-        currentParams[uploadTarget.paramName] = url;
+  // File input - direct reference
+  const fileInput = document.getElementById('fileInput');
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file && uploadTarget) {
+        uploadFile(file, uploadTarget.paramName);
       }
-      closeUploadModal();
-      renderParams(currentSchema);
-      updatePayloadPreview();
-    }
-  });
+    });
+  }
+
+  // Use URL button
+  const useUrlBtn = document.getElementById('btnUseUrl');
+  if (useUrlBtn) {
+    useUrlBtn.addEventListener('click', () => {
+      const urlInput = document.getElementById('imageUrlInput');
+      const url = urlInput ? urlInput.value.trim() : '';
+      if (url && uploadTarget) {
+        if (uploadTarget.isMulti) {
+          if (!uploadedImages[uploadTarget.paramName]) uploadedImages[uploadTarget.paramName] = [];
+          uploadedImages[uploadTarget.paramName].push(url);
+          currentParams[uploadTarget.paramName] = [...uploadedImages[uploadTarget.paramName]];
+        } else {
+          uploadedImages[uploadTarget.paramName] = url;
+          currentParams[uploadTarget.paramName] = url;
+        }
+        closeUploadModal();
+        renderParams(currentSchema);
+        updatePayloadPreview();
+      }
+    });
+  }
 
   // Drop zone in modal
   const dropZone = document.getElementById('dropZone');
