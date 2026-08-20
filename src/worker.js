@@ -158,18 +158,46 @@ async function handleApiRoute(request, env, path) {
 
     // Proxy to MuAPI - endpoint in D1 already includes /api/v1/
     const apiUrl = model.endpoint.startsWith('http') ? model.endpoint : `https://api.muapi.ai${model.endpoint}`;
-    const apiRes = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'x-api-key': MUAPI_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(apiBody),
-    });
 
-    const data = await apiRes.json();
+    let apiRes;
+    try {
+      apiRes = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'x-api-key': MUAPI_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(apiBody),
+      });
+    } catch (fetchErr) {
+      return jsonResponse({ error: 'Network error', message: fetchErr.message }, 502);
+    }
+
+    // Read response body as text first
+    let responseText = '';
+    try {
+      responseText = await apiRes.text();
+    } catch {
+      responseText = '';
+    }
+
+    // Try parsing as JSON
+    let data = null;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      data = null;
+    }
+
     if (!apiRes.ok) {
-      return jsonResponse({ error: 'MuAPI error', details: data }, apiRes.status);
+      const msg = (data && (data.detail || data.error || data.message))
+        || responseText
+        || `HTTP ${apiRes.status}`;
+      return jsonResponse({
+        error: `MuAPI error (${apiRes.status})`,
+        message: String(msg),
+        status: apiRes.status,
+      }, apiRes.status);
     }
 
     return jsonResponse({

@@ -512,7 +512,10 @@ async function generate() {
       body: JSON.stringify({ modelId: currentModel.id, params }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.details?.detail || 'Generation failed');
+    if (!res.ok) {
+      const errMsg = data.message || data.error || data.details?.detail || `Generation failed (${res.status})`;
+      throw new Error(errMsg);
+    }
 
     showStatus('Processing...', `ID: ${data.requestId}`, true);
     pollForResult(data.requestId, data.cost);
