@@ -1,0 +1,21 @@
+{
+  "name": "muapi-prompt-generator",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "d1:create": "wrangler d1 create muapi-models",
+    "d1:migrate:local": "wrangler d1 execute muapi-models --local --file=migrations/0001_init.sql",
+    "d1:migrate:remote": "wrangler d1 execute muapi-models --remote --file=migrations/0001_init.sql",
+    "seed:parse": "node scripts/parse-openapi-seed.js",
+    "seed:local": "wrangler d1 execute muapi-models --local --file=migrations/0002_seed.sql",
+    "seed:remote": "wrangler d1 execute muapi-models --remote --file=migrations/0002_seed.sql",
+    "setup:local": "npm run d1:migrate:local && npm run seed:local",
+    "setup:remote": "npm run d1:migrate:remote && npm run seed:remote",
+    "reseed": "npm run seed:parse && npm run seed:local"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+name = "muapi-prompt-generator"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "muapi-models"
+database_id = "bf6aa067-463a-45ba-91b3-d240dec91385"
+
+[vars]
+MUAPI_BASE_URL = "https://api.muapi.ai/api/v1"

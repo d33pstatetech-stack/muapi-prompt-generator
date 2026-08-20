@@ -1,0 +1,101 @@
+/* MuAPI Prompt Generator - Custom Styles */
+
+.tab-btn {
+  @apply px-4 py-2 rounded-md text-sm font-medium text-gray-400 transition-all duration-150;
+}
+.tab-btn:hover {
+  @apply text-gray-200 bg-gray-800;
+}
+.tab-btn.active {
+  @apply text-white bg-gray-800 shadow-sm;
+}
+
+.card {
+  @apply bg-gray-900/60 border border-gray-800 rounded-xl p-4;
+}
+
+.label {
+  @apply block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider;
+}
+
+.input {
+  @apply w-full px-3 py-2.5 bg-gray-950 border border-gray-800 rounded-lg text-sm text-gray-100
+         placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50
+         transition-all duration-150;
+}
+
+.btn-primary {
+  @apply px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-semibold
+         hover:from-purple-500 hover:to-pink-500 transition-all duration-200 transform hover:scale-[1.01]
+         disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100
+         disabled:hover:from-purple-600 disabled:hover:to-pink-600;
+}
+
+.btn-secondary {
+  @apply px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-md text-gray-300
+         hover:bg-gray-700 hover:text-white transition-all duration-150;
+}
+
+.badge {
+  @apply inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30;
+}
+
+.dropdown {
+  @apply absolute top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg
+         shadow-2xl max-h-64 overflow-y-auto z-50;
+}
+
+.dropdown-item {
+  @apply px-3 py-2 text-sm cursor-pointer flex items-center justify-between
+         hover:bg-gray-800 transition-colors duration-100;
+}
+
+.dropdown-item.selected {
+  @apply bg-purple-500/20 text-purple-300;
+}
+
+.spinner {
+  @apply w-5 h-5 border-2 border-gray-700 border-t-purple-500 rounded-full animate-spin;
+}
+
+.param-input {
+  @apply w-full px-2.5 py-2 bg-gray-950 border border-gray-800 rounded-md text-sm text-gray-100
+         focus:outline-none focus:ring-1 focus:ring-purple-500/50 focus:border-purple-500/50;
+}
+
+.param-label {
+  @apply text-xs text-gray-400 mb-1 flex items-center gap-1.5;
+}
+
+.param-label .required {
+  @apply text-pink-400 text-[10px];
+}
+
+.param-description {
+  @apply text-[11px] text-gray-600 mt-0.5;
+}
+
+.range-value {
+  @apply text-xs font-mono text-purple-300 min-w-[3ch] text-right;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+/* Output image/video */
+#outputContent img,
+#outputContent video {
+  @apply max-w-full max-h-[512px] rounded-lg object-contain mx-auto;
+}
+
+/* History item */
+.history-item {
+  @apply flex items-center gap-3 p-2 rounded-lg bg-gray-950/50 hover:bg-gray-900/50 cursor-pointer transition-colors;
+}
+
+.history-item img {
+  @apply w-10 h-10 rounded object-cover;
+}
