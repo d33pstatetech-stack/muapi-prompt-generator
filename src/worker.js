@@ -15,6 +15,17 @@
 
 const MUAPI_BASE = 'https://api.muapi.ai/api/v1';
 
+const PROTECTED_API_PREFIXES = ['/api/generate', '/api/upload', '/api/predictions', '/api/estimate', '/api/sync'];
+
+function isAccessAuthenticated(request) {
+  // Cloudflare Access injects these headers *after* verifying the JWT at the edge.
+  // If Access is not yet configured, these headers will be absent -> treat as unauthenticated.
+  return !!(
+    request.headers.get('Cf-Access-Jwt-Assertion') ||
+    request.headers.get('Cf-Access-Authenticated-User-Email')
+  );
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -24,11 +35,29 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cf-Access-Jwt-Assertion',
     };
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // --- Cloudflare Access gate: protect billing routes ---
+    // Once you enable Access in the dashboard, Cloudflare will block unauthenticated
+    // browsers *before* they hit the Worker. This check is defense-in-depth and
+    // also returns a clear JSON 401 for API clients / curl.
+    const needsAuth = PROTECTED_API_PREFIXES.some((p) => path.startsWith(p));
+    if (needsAuth && !isAccessAuthenticated(request)) {
+      const res = jsonResponse(
+        {
+          error: 'Authentication required',
+          message:
+            'This deployment is protected by Cloudflare Access. Sign in via the browser, or present a valid Cf-Access-Jwt-Assertion (service token).',
+        },
+        401
+      );
+      for (const [k, v] of Object.entries(corsHeaders)) res.headers.set(k, v);
+      return res;
     }
 
     // API routes
