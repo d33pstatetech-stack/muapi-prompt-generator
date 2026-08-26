@@ -30,6 +30,9 @@
         <button id="btnTemplates" class="header-btn" title="Templates">
           <i class="fas fa-layer-group"></i>
         </button>
+        <button id="btnSettings" class="header-btn" title="LLM Settings">
+          <i class="fas fa-cog"></i>
+        </button>
         <span id="connectionDot" class="w-2 h-2 rounded-full bg-gray-600"></span>
       </div>
     </div>
@@ -181,6 +184,25 @@
           </div>
         </section>
 
+        <!-- AI Prompt Enhancer -->
+        <section id="enhancerPanel" class="panel">
+          <h2 class="panel-title"><i class="fas fa-wand-magic-sparkles"></i> AI Prompt Enhancer</h2>
+          <p class="text-[11px] text-gray-500 mb-2">Refine your prompt for the selected model. Context is auto-filled.</p>
+          <textarea id="enhancerInput" class="prompt-textarea" style="min-height:80px" placeholder="Write a rough prompt to enhance..."></textarea>
+          <div id="enhancerContextPreview" class="text-[10px] text-gray-600 mt-2 p-2 rounded bg-gray-900/50 hidden"></div>
+          <button id="btnEnhancePrompt" class="btn-primary-sm w-full mt-2" disabled><i class="fas fa-wand-magic-sparkles mr-1"></i> Enhance</button>
+          <div id="enhancerOutputWrap" class="hidden mt-3">
+            <label class="text-[11px] text-gray-500">Enhanced</label>
+            <textarea id="enhancerOutput" class="prompt-textarea" style="min-height:100px" readonly placeholder="Enhanced prompt will appear here..."></textarea>
+            <div class="flex gap-1.5 mt-2">
+              <button id="btnUseEnhanced" class="btn-primary-sm flex-1"><i class="fas fa-arrow-up mr-1"></i> Use as Prompt</button>
+              <button id="btnCopyEnhanced" class="icon-btn" title="Copy"><i class="fas fa-copy"></i></button>
+              <button id="btnSaveEnhanced" class="icon-btn" title="Save"><i class="fas fa-bookmark"></i></button>
+            </div>
+            <div id="enhancerMeta" class="text-[10px] text-gray-600 mt-1"></div>
+          </div>
+        </section>
+
         <section class="panel">
           <h2 class="panel-title"><i class="fas fa-lightbulb"></i> Tips</h2>
           <ul class="tips-list">
@@ -193,6 +215,28 @@
       </div>
     </div>
   </main>
+
+  <!-- Mobile Enhancer (collapsible below main prompt, < xl) -->
+  <div class="xl:hidden max-w-[1600px] mx-auto px-6 pb-6">
+    <section id="enhancerPanelMobile" class="panel">
+      <button id="btnToggleMobileEnhancer" class="w-full flex items-center justify-between">
+        <span class="panel-title mb-0"><i class="fas fa-wand-magic-sparkles"></i> AI Prompt Enhancer</span>
+        <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+      </button>
+      <div id="enhancerMobileBody" class="hidden mt-3">
+        <textarea id="enhancerInputMobile" class="prompt-textarea" style="min-height:80px" placeholder="Write a rough prompt to enhance..."></textarea>
+        <button id="btnEnhancePromptMobile" class="btn-primary-sm w-full mt-2" disabled><i class="fas fa-wand-magic-sparkles mr-1"></i> Enhance</button>
+        <div id="enhancerOutputWrapMobile" class="hidden mt-3">
+          <textarea id="enhancerOutputMobile" class="prompt-textarea" style="min-height:100px" readonly></textarea>
+          <div class="flex gap-1.5 mt-2">
+            <button id="btnUseEnhancedMobile" class="btn-primary-sm flex-1"><i class="fas fa-arrow-up mr-1"></i> Use as Prompt</button>
+            <button id="btnCopyEnhancedMobile" class="icon-btn"><i class="fas fa-copy"></i></button>
+          </div>
+          <div id="enhancerMetaMobile" class="text-[10px] text-gray-600 mt-1"></div>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <!-- Image Upload Modal -->
   <div id="uploadModal" class="modal" style="display: none;">
@@ -231,6 +275,26 @@
     </div>
   </div>
 
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal" style="display: none;">
+    <div class="modal-backdrop" id="settingsBackdrop"></div>
+    <div class="modal-content" style="max-width:640px; max-height:85vh; overflow-y:auto;">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-semibold">LLM Settings</h3>
+        <button id="closeSettingsModal" class="icon-btn" type="button"><i class="fas fa-times"></i></button>
+      </div>
+      <p class="text-xs text-gray-500 mb-3">Flat fallback chain — tried in order. Each row is provider + model. Drag to reorder. Keys are stored locally and on the server (masked when fetched).</p>
+      <div id="llmProvidersList" class="space-y-2"></div>
+      <button id="btnAddProvider" class="btn-secondary w-full mt-3" type="button"><i class="fas fa-plus mr-1"></i> Add model</button>
+      <div class="flex justify-end gap-2 mt-4">
+        <button id="btnCancelSettings" class="btn-secondary" type="button">Cancel</button>
+        <button id="btnSaveSettings" class="btn-primary-sm" type="button">Save</button>
+      </div>
+      <div id="settingsStatus" class="text-xs mt-2 hidden"></div>
+    </div>
+  </div>
+
   <script src="/app.js"></script>
+  <script src="/enhancer.js"></script>
 </body>
 </html>
