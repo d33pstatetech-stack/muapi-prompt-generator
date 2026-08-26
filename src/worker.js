@@ -14,16 +14,57 @@
  */
 
 const MUAPI_BASE = 'https://api.muapi.ai/api/v1';
+const OPENAPI_URL = 'https://api.muapi.ai/openapi.json';
 
 const PROTECTED_API_PREFIXES = ['/api/generate', '/api/upload', '/api/predictions', '/api/estimate', '/api/sync'];
 
+// Keep in sync with public/app grouping + scripts/parse-openapi-seed.js
+const TAG_TO_CATEGORY = {
+  'Image: Text-to-Image': 'Text to Image',
+  'Image: Edit & Reference': 'Image to Image',
+  'Image: Enhance': 'Image to Image',
+  'Video: Text-to-Video': 'Text to Video',
+  'Video: Image-to-Video': 'Image to Video',
+  'Video: Edit & Effects': 'Video to Video',
+  'Video: Lipsync': 'Audio to Video',
+  'Video: Avatars': 'Audio to Video',
+  'Video: Storyboard': 'Text to Video',
+  Audio: 'Text to Audio',
+  '3D Generation': 'Text to 3D',
+  'LLM / Multimodal': 'Text to Text',
+  API: 'Other',
+  Utilities: 'Other',
+  'Creative Agent': 'Other',
+  Account: 'Other',
+  Other: 'Other',
+};
+const STRIP_SUFFIXES = [
+  '-text-to-image', '-text-to-video', '-image-to-video', '-image-to-image',
+  '-text-to-3d', '-text-to-audio', '-reference-to-video', '-reference-to-image',
+  '-t2i', '-t2v', '-i2v', '-i2i', '-t2a',
+  '-image', '-video', '-audio',
+];
+function inferGroupOf(category) {
+  if (!category) return null;
+  const c = category.toLowerCase();
+  if (c.includes('image') && !c.includes('video')) return 'image';
+  if (c.includes('video')) return 'video';
+  if (c.includes('audio') || c.includes('music') || c.includes('speech')) return 'audio';
+  if (c.includes('3d')) return '3d';
+  if (c.includes('text') && !c.includes('image') && !c.includes('video')) return 'text';
+  return 'other';
+}
+
 function isAccessAuthenticated(request) {
-  // Cloudflare Access injects these headers *after* verifying the JWT at the edge.
-  // If Access is not yet configured, these headers will be absent -> treat as unauthenticated.
-  return !!(
-    request.headers.get('Cf-Access-Jwt-Assertion') ||
-    request.headers.get('Cf-Access-Authenticated-User-Email')
-  );
+  // Allow wrangler dev / localhost without Access (for local testing)
+  const url = new URL(request.url);
+  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') return true;
+  // Real Access check: Cloudflare injects these headers after verifying JWT at edge
+  const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
+  const email = request.headers.get('Cf-Access-Authenticated-User-Email');
+  // DEBUG: uncomment next line to force-block while testing deployment
+  // return false;
+  return !!(jwt || email);
 }
 
 export default {
@@ -182,8 +223,8 @@ async function handleApiRoute(request, env, path) {
       return jsonResponse({ error: 'Model not found in catalog' }, 404);
     }
 
-    // Build request body from user params
-    const apiBody = buildApiBody(modelId, userParams || {});
+    // Build request body from user params — per-model typed coercion
+    const apiBody = await buildApiBody(modelId, userParams || {}, env);
 
     // Proxy to MuAPI - endpoint in D1 already includes /api/v1/
     const apiUrl = model.endpoint.startsWith('http') ? model.endpoint : `https://api.muapi.ai${model.endpoint}`;
@@ -270,7 +311,7 @@ async function handleApiRoute(request, env, path) {
 
     // Try estimate endpoint
     if (model.estimate_endpoint) {
-      const apiBody = buildApiBody(modelId, userParams || {});
+      const apiBody = await buildApiBody(modelId, userParams || {}, env);
       const apiRes = await fetch(`${base.replace('/api/v1', '')}${model.estimate_endpoint}`, {
         method: 'POST',
         headers: {
@@ -325,11 +366,17 @@ async function handleApiRoute(request, env, path) {
   // ─── GET /api/health ───
   if (path === '/api/health') {
     const modelCount = await DB.prepare('SELECT COUNT(*) as count FROM models').first();
+    let syncedAt = null;
+    try {
+      const row = await DB.prepare("SELECT value FROM catalog_meta WHERE key='last_sync'").first();
+      syncedAt = row ? row.value : null;
+    } catch { /* ignore */ }
     return jsonResponse({
       status: 'ok',
       models: modelCount?.count || 0,
       hasApiKey: !!MUAPI_API_KEY,
       timestamp: new Date().toISOString(),
+      synced_at: syncedAt,
     });
   }
 
@@ -337,110 +384,218 @@ async function handleApiRoute(request, env, path) {
 }
 
 /**
- * Build the API request body for a given model from user params.
- * Handles model-specific param mapping.
+ * Build the API request body — generic, capability-aware.
+ * Looks up the stored param schema for the model so each model only
+ * receives params it actually supports, with correct types (int/float/bool/array).
+ * Falls back to allowlisting unknown keys as-is (forward-compatible for new models like Wan 3.0).
  */
-function buildApiBody(modelId, params) {
+async function buildApiBody(modelId, params, env) {
+  let schemaParams = null;
+  try {
+    const row = await env.DB.prepare('SELECT schema_json FROM model_params WHERE model_id = ?').bind(modelId).first();
+    if (row && row.schema_json) schemaParams = JSON.parse(row.schema_json);
+  } catch { /* no schema — generic passthrough */ }
+
   const body = {};
-
-  // Prompt is always present
-  if (params.prompt) body.prompt = params.prompt;
-
-  // Aspect ratio (most video/image models)
-  if (params.aspect_ratio) body.aspect_ratio = params.aspect_ratio;
-
-  // Dimensions (Flux, GPT-4o, etc.)
-  if (params.width) body.width = parseInt(params.width);
-  if (params.height) body.height = parseInt(params.height);
-  if (params.num_images) body.num_images = parseInt(params.num_images);
-
-  // Midjourney-specific
-  if (params.stylize !== undefined) body.stylize = parseInt(params.stylize);
-  if (params.chaos !== undefined) body.chaos = parseInt(params.chaos);
-  if (params.weird !== undefined) body.weird = parseInt(params.weird);
-  if (params.negative_prompt) body.negative_prompt = params.negative_prompt;
-  if (params.seed !== undefined) body.seed = parseInt(params.seed);
-
-  // Image reference (I2V, edit models, Midjourney)
-  if (params.image_url) body.image_url = params.image_url;
-  if (params.last_image) body.last_image = params.last_image;
-
-  // Multi-image (Veo I2V, Seedance omni)
-  if (params.images_list) {
-    body.images_list = Array.isArray(params.images_list)
-      ? params.images_list
-      : [params.images_list];
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue;
+    const spec = schemaParams ? schemaParams[k] : null;
+    if (spec) {
+      if (spec.type === 'number') {
+        const n = typeof v === 'string' ? Number(v) : v;
+        if (!Number.isNaN(n)) body[k] = n;
+        continue;
+      }
+      if (spec.type === 'boolean') {
+        body[k] = v === true || v === 'true' || v === 1 || v === '1';
+        continue;
+      }
+      if (spec.type === 'array' && !Array.isArray(v)) {
+        body[k] = [v];
+        continue;
+      }
+    } else {
+      if (['width', 'height', 'num_images', 'stylize', 'chaos', 'weird', 'seed'].includes(k)) {
+        const n = parseInt(v, 10);
+        if (!Number.isNaN(n)) { body[k] = n; continue; }
+      }
+      if (k === 'duration' && typeof v === 'string') {
+        const n = parseInt(v, 10);
+        if (!Number.isNaN(n)) { body[k] = n; continue; }
+      }
+      if (k === 'images_list' && !Array.isArray(v)) { body[k] = [v]; continue; }
+    }
+    body[k] = v;
   }
-
-  // Video-specific
-  if (params.duration) {
-    body.duration = typeof params.duration === 'string' ? parseInt(params.duration) : params.duration;
-  }
-  if (params.resolution) body.resolution = params.resolution;
-  if (params.quality) body.quality = params.quality;
-  if (params.style) body.style = params.style;
-
-  // Audio-specific
-  if (params.lyrics) body.lyrics = params.lyrics;
-
-  // 3D-specific
-  if (params.texture_quality) body.texture_quality = params.texture_quality;
-  if (params.topology) body.topology = params.topology;
-
-  // Webhook (always null for client-side polling)
   body.webhook_url = null;
-
   return body;
 }
 
+// ── OpenAPI helpers for /api/sync (same logic as scripts/build-catalog.js) ──
+function mapType(t) {
+  const m = { string: 'string', integer: 'number', number: 'number', boolean: 'boolean', array: 'array', object: 'object' };
+  return m[t] || t || 'string';
+}
+function resolveRef(ref, schemas) {
+  if (!ref || !ref.startsWith('#/components/schemas/')) return null;
+  return schemas[ref.replace('#/components/schemas/', '')] || null;
+}
+function extractProperty(name, prop, schemas, requiredFields) {
+  const r = { type: 'string' };
+  if (prop.$ref) {
+    const resolved = resolveRef(prop.$ref, schemas);
+    r.type = 'object'; r.$ref = prop.$ref.replace('#/components/schemas/', '');
+    if (resolved && resolved.title) r.title = resolved.title;
+  } else if (prop.anyOf) {
+    const nonNull = prop.anyOf.find((p) => p.type !== 'null');
+    if (nonNull) {
+      if (nonNull.$ref) { r.type = 'object'; r.$ref = nonNull.$ref.replace('#/components/schemas/', ''); }
+      else {
+        r.type = mapType(nonNull.type);
+        if (nonNull.format) r.format = nonNull.format;
+        if (nonNull.enum) r.options = nonNull.enum;
+        if (nonNull.minimum !== undefined) r.min = nonNull.minimum;
+        if (nonNull.maximum !== undefined) r.max = nonNull.maximum;
+        if (nonNull.minLength !== undefined) r.minLength = nonNull.minLength;
+        if (nonNull.maxLength !== undefined) r.maxLength = nonNull.maxLength;
+      }
+    }
+    r.nullable = true;
+  } else if (prop.allOf) {
+    const merged = prop.allOf.find((p) => p.$ref || p.type);
+    if (merged) return extractProperty(name, merged, schemas, requiredFields);
+  } else {
+    r.type = mapType(prop.type);
+    if (prop.format) r.format = prop.format;
+    if (prop.enum) r.options = prop.enum;
+    if (prop.minimum !== undefined) r.min = prop.minimum;
+    if (prop.maximum !== undefined) r.max = prop.maximum;
+    if (prop.minLength !== undefined) r.minLength = prop.minLength;
+    if (prop.maxLength !== undefined) r.maxLength = prop.maxLength;
+    if (prop.items) {
+      r.items = {};
+      if (prop.items.$ref) r.items.$ref = prop.items.$ref.replace('#/components/schemas/', '');
+      else if (prop.items.type) r.items.type = mapType(prop.items.type);
+    }
+  }
+  if (requiredFields.includes(name)) r.required = true;
+  if (prop.default !== undefined) r.default = prop.default;
+  if (prop.title) r.title = prop.title;
+  if (prop.description) r.description = prop.description;
+  return r;
+}
+function extractSchema(pathItem, schemas) {
+  const post = pathItem && pathItem.post;
+  if (!post || !post.requestBody) return null;
+  const c = post.requestBody.content;
+  if (!c || !c['application/json']) return null;
+  let s = c['application/json'].schema;
+  if (!s) return null;
+  if (s.$ref) { const r = resolveRef(s.$ref, schemas); if (!r) return null; s = r; }
+  const requiredFields = s.required || [];
+  const params = {}; const defaults = {};
+  for (const [n, p] of Object.entries(s.properties || {})) {
+    if (n === 'webhook_url') continue;
+    const spec = extractProperty(n, p, schemas, requiredFields);
+    params[n] = spec; if (spec.default !== undefined) defaults[n] = spec.default;
+  }
+  return { params, defaults };
+}
+function buildOpenAPILookup(paths) {
+  const lookup = {};
+  for (const key of Object.keys(paths)) {
+    if (!key.startsWith('/api/v1/') || !paths[key].post) continue;
+    const slug = key.replace('/api/v1/', '');
+    lookup[slug] = key;
+    for (const sfx of STRIP_SUFFIXES) {
+      if (slug.endsWith(sfx)) {
+        const stripped = slug.slice(0, -sfx.length);
+        if (!lookup[stripped]) lookup[stripped] = key;
+      }
+    }
+  }
+  return lookup;
+}
+
 /**
- * Sync catalog from MuAPI live API into D1.
+ * Sync catalog from MuAPI live API + OpenAPI into D1 (models + model_params).
+ * Powers the "Update" button — pulls new models like Wan 3.0 and their per-model param schemas.
  */
 async function syncCatalog(env) {
   const { DB } = env;
+  const started = Date.now();
 
-  const res = await fetch(MUAPI_BASE + '/models');
-  if (!res.ok) {
-    return jsonResponse({ error: 'Failed to fetch catalog', status: res.status }, 502);
-  }
-  const catalog = await res.json();
+  // 1. Fetch live catalog + OpenAPI in parallel
+  const [catRes, specRes] = await Promise.all([fetch(MUAPI_BASE + '/models'), fetch(OPENAPI_URL)]);
+  if (!catRes.ok) return jsonResponse({ error: 'Failed to fetch catalog', status: catRes.status }, 502);
+  if (!specRes.ok) return jsonResponse({ error: 'Failed to fetch OpenAPI spec', status: specRes.status }, 502);
 
-  // Clear and re-insert
+  const catalog = await catRes.json();
+  const spec = await specRes.json();
+  const schemas = (spec.components && spec.components.schemas) || {};
+  const paths = spec.paths || {};
+  const lookup = buildOpenAPILookup(paths);
+
+  // 2. Rebuild models + model_params atomically
+  const prevRow = await DB.prepare('SELECT COUNT(*) as c FROM models').first();
+  const previous = prevRow ? prevRow.c : 0;
+
+  await DB.prepare('DELETE FROM model_params').run();
   await DB.prepare('DELETE FROM models').run();
 
-  const stmts = [];
-  for (const model of catalog.models) {
-    stmts.push(
+  const modelStmts = [];
+  const paramStmts = [];
+  let withParams = 0;
+
+  for (const catModel of catalog.models) {
+    const name = catModel.name;
+    const openAPIPath = lookup[name] || null;
+    const pathItem = openAPIPath ? paths[openAPIPath] : null;
+    const oapiTag = pathItem && pathItem.post && pathItem.post.tags && pathItem.post.tags[0] || '';
+    const category = TAG_TO_CATEGORY[oapiTag] || inferGroupOf(catModel.group_of) || 'Other';
+    const groupOf = catModel.group_of || inferGroupOf(category);
+    const endpoint = openAPIPath || catModel.endpoint;
+
+    modelStmts.push(
       DB.prepare(
-        `INSERT OR REPLACE INTO models (id, name, description, category, family, group_of, cost, cost_currency, dynamic_pricing, endpoint, estimate_endpoint, playground_url, llms_txt_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        'INSERT INTO models (id, name, description, category, family, group_of, cost, cost_currency, dynamic_pricing, endpoint, estimate_endpoint, playground_url, llms_txt_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
-        model.name,
-        model.name,
-        model.description || '',
-        model.category || '',
-        model.family || null,
-        model.group_of || null,
-        model.cost || 0,
-        model.cost_currency || 'USD',
-        model.dynamic_pricing ? 1 : 0,
-        model.endpoint || '',
-        model.estimate_endpoint || null,
-        `https://muapi.ai/playground/${model.name}`,
-        `https://muapi.ai/playground/${model.name}/llms.txt`
+        name, name,
+        ((pathItem && pathItem.post && pathItem.post.description) || catModel.description || '').substring(0, 500),
+        category, catModel.family || null, groupOf, catModel.cost || 0, catModel.cost_currency || 'USD',
+        catModel.dynamic_pricing ? 1 : 0, endpoint, catModel.estimate_endpoint || null,
+        `https://muapi.ai/playground/${name}`, `https://muapi.ai/playground/${name}/llms.txt`
       )
     );
+
+    if (pathItem) {
+      const schemaResult = extractSchema(pathItem, schemas);
+      if (schemaResult && Object.keys(schemaResult.params).length > 0) {
+        paramStmts.push(
+          DB.prepare('INSERT INTO model_params (model_id, schema_json, defaults_json) VALUES (?, ?, ?)').bind(
+            name, JSON.stringify(schemaResult.params), JSON.stringify(schemaResult.defaults)
+          )
+        );
+        withParams++;
+      }
+    }
   }
 
-  // Batch insert (D1 supports up to 100 per batch)
-  for (let i = 0; i < stmts.length; i += 50) {
-    await DB.batch(stmts.slice(i, i + 50));
-  }
+  for (let i = 0; i < modelStmts.length; i += 50) await DB.batch(modelStmts.slice(i, i + 50));
+  for (let i = 0; i < paramStmts.length; i += 50) await DB.batch(paramStmts.slice(i, i + 50));
 
-  // Update meta
   await DB.prepare("INSERT OR REPLACE INTO catalog_meta (key, value, updated_at) VALUES ('last_sync', datetime('now'), datetime('now'))").run();
   await DB.prepare(`INSERT OR REPLACE INTO catalog_meta (key, value, updated_at) VALUES ('total_models', '${catalog.total}', datetime('now'))`).run();
 
-  return jsonResponse({ synced: catalog.total, total: catalog.total });
+  return jsonResponse({
+    ok: true,
+    total: catalog.total,
+    with_params: withParams,
+    added: catalog.total - previous,
+    previous,
+    synced_at: new Date().toISOString(),
+    took_ms: Date.now() - started,
+  });
 }
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {

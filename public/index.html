@@ -17,10 +17,13 @@
         <div class="logo-icon"><i class="fas fa-bolt"></i></div>
         <div>
           <h1 class="text-lg font-bold gradient-text">MuAPI Prompt Generator</h1>
-          <p class="text-[11px] text-gray-500">609 models &middot; Image &middot; Video &middot; Audio &middot; 3D</p>
+          <p class="text-[11px] text-gray-500"><span id="headerModelCount">—</span> models &middot; Image &middot; Video &middot; Audio &middot; 3D &middot; <span id="headerSyncedAt" class="text-gray-600"></span></p>
         </div>
       </div>
       <div class="flex items-center gap-3">
+        <button id="btnSync" class="header-btn" title="Update catalog — pull new models & params from MuAPI">
+          <i class="fas fa-sync-alt"></i>
+        </button>
         <button id="btnSavedPrompts" class="header-btn" title="Saved Prompts">
           <i class="fas fa-bookmark"></i>
         </button>

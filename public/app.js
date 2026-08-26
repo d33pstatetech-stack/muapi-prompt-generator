@@ -43,10 +43,62 @@ async function loadModels() {
     allModels = data.models || [];
     filterByGroup();
     setConnectionStatus(true);
+    try {
+      const h = await fetch(`${API}/health`).then((r) => r.json());
+      const hc = document.getElementById('headerModelCount');
+      const hs = document.getElementById('headerSyncedAt');
+      if (hc) hc.textContent = h.models ?? allModels.length;
+      if (hs && h.synced_at) {
+        const d = new Date(h.synced_at);
+        hs.textContent = `synced ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        hs.title = h.synced_at;
+      } else if (hs && h.timestamp) {
+        const d = new Date(h.timestamp);
+        hs.textContent = `synced ${d.toLocaleDateString()}`;
+        hs.title = h.timestamp;
+      }
+    } catch { /* ignore */ }
   } catch (e) {
     console.error('Failed to load models:', e);
     setConnectionStatus(false);
   }
+}
+
+async function syncCatalog() {
+  const btn = document.getElementById('btnSync');
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; btn.disabled = true; }
+  try {
+    const res = await fetch(`${API}/sync`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message || 'Sync failed');
+    await loadModels();
+    if (currentModel) await selectModel(currentModel.id);
+    const msg = data.added > 0
+      ? `Updated: ${data.total} models (+${data.added} new)` + (data.with_params ? `, ${data.with_params} with params` : '')
+      : `Already up to date: ${data.total} models`;
+    showToast(msg, 'success');
+  } catch (e) {
+    showToast('Update failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.innerHTML = orig; btn.disabled = false; }
+  }
+}
+
+function showToast(message, kind) {
+  let el = document.getElementById('appToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'appToast';
+    el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 18px;border-radius:10px;font-size:13px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,0.4);';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.style.background = kind === 'error' ? '#7f1d1d' : '#064e3b';
+  el.style.color = '#fff';
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 
 function filterByGroup() {
@@ -711,6 +763,9 @@ function setupEventListeners() {
       filterByGroup();
     });
   });
+
+  // Update / sync models
+  document.getElementById('btnSync')?.addEventListener('click', syncCatalog);
 
   // Model search
   const search = document.getElementById('modelSearch');
