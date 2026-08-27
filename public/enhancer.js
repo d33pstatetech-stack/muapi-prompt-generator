@@ -316,19 +316,17 @@
   // Wire up once DOM ready
   function initEnhancer() {
     const byId = (id) => document.getElementById(id);
-    // Enable/disable enhance buttons based on model selection
-    const updateEnhanceBtns = () => {
-      const hasModel = !!(window.currentModel && window.currentModel.id);
-      const b1 = byId("btnEnhancePrompt"); if (b1) b1.disabled = !hasModel;
-      const b2 = byId("btnEnhancePromptMobile"); if (b2) b2.disabled = !hasModel;
+    // Keep context preview in sync with model selection (buttons stay enabled — we show toast if no model)
+    const updateEnhancePreview = () => {
+      const ctx = getEnhancerContext();
+      const p = byId("enhancerContextPreview");
+      if (p && ctx) { p.textContent = `Model: ${ctx.model} | ${ctx.mediaType} | ${ctx.resolution || "auto"} | ${ctx.aspectRatio || "auto"}${ctx.duration ? " | "+ctx.duration+"s":""}${ctx.hasAudio?" | audio":""}`; p.classList.remove("hidden"); }
     };
-    // Patch selectModel to update enhancer buttons
+    // Patch selectModel to update preview
     const origSelect = window.selectModel;
     if (origSelect) {
-      window.selectModel = async function (...a) { const r = await origSelect(...a); updateEnhanceBtns(); const ctx = getEnhancerContext(); const p = byId("enhancerContextPreview"); if (p && ctx) { p.textContent = `Model: ${ctx.model} | ${ctx.mediaType} | ${ctx.resolution || "auto"} | ${ctx.aspectRatio || "auto"}${ctx.duration ? " | "+ctx.duration+"s":""}${ctx.hasAudio?" | audio":""}`; p.classList.remove("hidden"); } return r; };
+      window.selectModel = async function (...a) { const r = await origSelect(...a); updateEnhancePreview(); return r; };
     }
-    // Also poll for model changes
-    setInterval(updateEnhanceBtns, 800);
 
     byId("btnEnhancePrompt") && byId("btnEnhancePrompt").addEventListener("click", () => doEnhance(false));
     byId("btnEnhancePromptMobile") && byId("btnEnhancePromptMobile").addEventListener("click", () => doEnhance(true));

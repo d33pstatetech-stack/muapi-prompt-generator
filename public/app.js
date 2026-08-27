@@ -15,6 +15,15 @@ let history = [];
 let uploadTarget = null; // which param the upload modal is targeting
 let uploadedImages = {}; // param_name → url or [urls]
 
+// Expose for enhancer.js (which loads after this file, shares same global lexical scope via window)
+try {
+  Object.defineProperty(window, 'currentModel', { get: () => currentModel, set: (v) => { currentModel = v; }, configurable: true });
+  Object.defineProperty(window, 'currentParams', { get: () => currentParams, set: (v) => { currentParams = v; }, configurable: true });
+  Object.defineProperty(window, 'currentSchema', { get: () => currentSchema, set: (v) => { currentSchema = v; }, configurable: true });
+  Object.defineProperty(window, 'allModels', { get: () => allModels, configurable: true });
+  window.updatePayloadPreview = updatePayloadPreview; // defined later, will be overwritten — ensure global
+} catch {}
+
 // ── Templates ──
 const TEMPLATES = [
   { name: 'Product Photo', icon: 'fa-box', prompt: 'Professional product photography of [subject], clean white background, studio lighting, soft shadows, commercial quality, 8k', model: 'flux-kontext-max-t2i', params: { aspect_ratio: '1:1' } },
