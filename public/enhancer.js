@@ -215,40 +215,99 @@
       preview.classList.remove("hidden");
     }
 
+    // Show thinking state immediately
+    const outElPre = document.getElementById(outputId);
+    const wrapPre = document.getElementById(wrapId);
+    if (outElPre) { outElPre.value = ""; outElPre.placeholder = "Thinking — streaming..."; }
+    if (wrapPre) wrapPre.classList.remove("hidden");
+    const metaPre = document.getElementById(metaId);
+    if (metaPre) metaPre.textContent = "● thinking — streaming tokens...";
+    const otherOutPre = document.getElementById(isMobile ? "enhancerOutput" : "enhancerOutputMobile");
+    const otherWrapPre = document.getElementById(isMobile ? "enhancerOutputWrap" : "enhancerOutputWrapMobile");
+    if (otherOutPre) { otherOutPre.value = ""; otherOutPre.placeholder = "Thinking — streaming..."; }
+    if (otherWrapPre) otherWrapPre.classList.remove("hidden");
+
     try {
       const res = await fetch(API + "/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rawPrompt: raw, modelId: ctx.model, params: window.currentParams || {} }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || "Enhance failed");
+      if (!res.ok) {
+        // Try to parse JSON error
+        let msg = "Enhance failed";
+        try { const j = await res.json(); msg = j.message || j.error || msg; } catch { try { msg = await res.text(); } catch {} }
+        throw new Error(msg);
+      }
 
-      const outEl = document.getElementById(outputId);
-      if (outEl) outEl.value = data.enhanced || "";
-      const wrap = document.getElementById(wrapId);
-      if (wrap) wrap.classList.remove("hidden");
-      // Mirror to other pane
-      const otherOut = document.getElementById(isMobile ? "enhancerOutput" : "enhancerOutputMobile");
-      const otherWrap = document.getElementById(isMobile ? "enhancerOutputWrap" : "enhancerOutputWrapMobile");
-      if (otherOut) otherOut.value = data.enhanced || "";
-      if (otherWrap) otherWrap.classList.remove("hidden");
+      const ct = res.headers.get("content-type") || "";
+      let full = "";
+      let providerUsed = res.headers.get("X-Provider-Used") || "?";
+      let modelUsed = res.headers.get("X-Model-Used") || "?";
+
+      if (ct.includes("text/event-stream") && res.body) {
+        // Streaming mode
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        const outEl = document.getElementById(outputId);
+        const metaEl = document.getElementById(metaId);
+        const otherOut = document.getElementById(isMobile ? "enhancerOutput" : "enhancerOutputMobile");
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const d = line.slice(6).trim();
+            if (d === "[DONE]" || !d) continue;
+            try {
+              const j = JSON.parse(d);
+              const delta = j.choices?.[0]?.delta?.content || "";
+              if (delta) {
+                full += delta;
+                if (outEl) { outEl.value = full; outEl.scrollTop = outEl.scrollHeight; }
+                if (otherOut) { otherOut.value = full; otherOut.scrollTop = otherOut.scrollHeight; }
+                if (metaEl) metaEl.textContent = `● streaming ${full.length} chars via ${providerUsed} / ${modelUsed}...`;
+                const metaOther = document.getElementById(isMobile ? "enhancerMeta" : "enhancerMetaMobile");
+                if (metaOther) metaOther.textContent = metaEl.textContent;
+              }
+            } catch {}
+          }
+        }
+      } else {
+        // Fallback JSON (non-streaming)
+        const data = await res.json();
+        full = data.enhanced || "";
+        providerUsed = data.providerUsed || providerUsed;
+        modelUsed = data.modelUsed || modelUsed;
+        const outEl = document.getElementById(outputId);
+        if (outEl) outEl.value = full;
+        const otherOut = document.getElementById(isMobile ? "enhancerOutput" : "enhancerOutputMobile");
+        if (otherOut) otherOut.value = full;
+      }
+
+      if (!full) throw new Error("Empty LLM response");
 
       const meta = document.getElementById(metaId);
-      if (meta) meta.textContent = `via ${data.providerUsed || "?"} / ${data.modelUsed || "?"}${data.usage ? " — " + JSON.stringify(data.usage) : ""}`;
+      if (meta) meta.textContent = `via ${providerUsed} / ${modelUsed} — ${full.length} chars`;
       const metaOther = document.getElementById(isMobile ? "enhancerMeta" : "enhancerMetaMobile");
       if (metaOther) metaOther.textContent = meta ? meta.textContent : "";
 
       // Auto-save to localStorage saved prompts (enhanced)
       try {
         const saved = JSON.parse(localStorage.getItem("muapi_saved") || "[]");
-        saved.unshift({ prompt: data.enhanced, rawPrompt: raw, model: ctx.model, params: { ...window.currentParams }, kind: "enhanced", time: new Date().toISOString(), provider: data.providerUsed, llmModel: data.modelUsed });
+        saved.unshift({ prompt: full, rawPrompt: raw, model: ctx.model, params: { ...window.currentParams }, kind: "enhanced", time: new Date().toISOString(), provider: providerUsed, llmModel: modelUsed });
         if (saved.length > 50) saved.pop();
         localStorage.setItem("muapi_saved", JSON.stringify(saved));
       } catch {}
-      window.showToast && showToast("Enhanced ✓", "success");
+      window.showToast && showToast("Enhanced ✓ streaming", "success");
     } catch (e) {
       window.showToast && showToast("Enhance failed: " + e.message, "error");
+      const meta = document.getElementById(metaId);
+      if (meta) meta.textContent = "● error: " + e.message;
     } finally {
       if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     }

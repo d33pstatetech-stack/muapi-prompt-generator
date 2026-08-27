@@ -461,7 +461,7 @@ async function handleApiRoute(request, env, path) {
     return jsonResponse({ ok: true, config: redactLLMConfig(toSave) });
   }
 
-  // ─── POST /api/enhance ───
+  // ─── POST /api/enhance ─── (streaming)
   if (path === '/api/enhance' && request.method === 'POST') {
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
@@ -473,7 +473,6 @@ async function handleApiRoute(request, env, path) {
     const model = await DB.prepare('SELECT * FROM models WHERE id = ?').bind(modelId).first();
     if (!model) return jsonResponse({ error: 'Model not found' }, 404);
 
-    // Derive deterministic context
     const mediaType = deriveMediaTypeWorker(model);
     const aspectRatio = userParams.aspect_ratio || null;
     const resolution = userParams.resolution || (userParams.width && userParams.height ? `${userParams.width}x${userParams.height}` : null) || null;
@@ -484,12 +483,14 @@ async function handleApiRoute(request, env, path) {
 
     const llmCfg = await getLLMConfigWorker(env);
     let lastErr = null;
+
     for (const p of llmCfg.providers) {
       const baseUrl = (p.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
       const apiKey = p.apiKey || env.OPENROUTER_API_KEY || '';
       if (!apiKey) { lastErr = 'Missing API key for ' + p.model; continue; }
+      let llmRes;
       try {
-        const llmRes = await fetch(`${baseUrl}/chat/completions`, {
+        llmRes = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -499,32 +500,85 @@ async function handleApiRoute(request, env, path) {
           },
           body: JSON.stringify({
             model: p.model,
+            stream: true,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: `Raw prompt: """${rawPrompt}"""` },
             ],
           }),
         });
-        const txt = await llmRes.text();
-        let j = null;
-        try { j = JSON.parse(txt); } catch { j = null; }
-        if (!llmRes.ok) {
-          lastErr = (j && (j.error?.message || j.error)) || txt || `HTTP ${llmRes.status}`;
-          continue;
-        }
-        const enhanced = j?.choices?.[0]?.message?.content?.trim() || j?.choices?.[0]?.text?.trim();
-        if (!enhanced) { lastErr = 'Empty LLM response'; continue; }
-        // Persist (KISS — D1)
-        try {
-          await DB.prepare('INSERT INTO prompts (kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
-            'enhanced', rawPrompt, enhanced, model.id, JSON.stringify(userParams), baseUrl, p.model
-          ).run();
-        } catch {}
-        return jsonResponse({ enhanced, providerUsed: baseUrl, modelUsed: p.model, usage: j.usage || null, context: ctx });
       } catch (e) {
         lastErr = e.message;
         continue;
       }
+      if (!llmRes.ok) {
+        const txt = await llmRes.text().catch(() => '');
+        let j = null; try { j = JSON.parse(txt); } catch { j = null; }
+        lastErr = (j && (j.error?.message || j.error)) || txt || `HTTP ${llmRes.status}`;
+        continue;
+      }
+
+      // Stream OpenRouter SSE directly to client, capturing full text to persist
+      let fullEnhanced = '';
+      const streamHeaders = {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Provider-Used': baseUrl,
+        'X-Model-Used': p.model,
+      };
+      // Add CORS
+      for (const [k, v] of Object.entries({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cf-Access-Jwt-Assertion' })) {
+        streamHeaders[k] = v;
+      }
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          const reader = llmRes.body.getReader();
+          const decoder = new TextDecoder();
+          const encoder = new TextEncoder();
+          let buffer = '';
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                // Persist after stream (best-effort)
+                if (fullEnhanced) {
+                  try {
+                    await DB.prepare('INSERT INTO prompts (kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+                      'enhanced', rawPrompt, fullEnhanced, model.id, JSON.stringify(userParams), baseUrl, p.model
+                    ).run();
+                  } catch {}
+                }
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                controller.close();
+                break;
+              }
+              // Forward raw chunk to client immediately (thinking mode)
+              controller.enqueue(value);
+              // Also accumulate for persistence
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const d = line.slice(6).trim();
+                if (d === '[DONE]' || !d) continue;
+                try {
+                  const j = JSON.parse(d);
+                  const delta = j.choices?.[0]?.delta?.content || '';
+                  if (delta) fullEnhanced += delta;
+                } catch {}
+              }
+            }
+          } catch (e) {
+            try { controller.error(e); } catch {}
+          }
+        },
+      });
+
+      // Also send context as initial SSE comment so frontend can show thinking
+      return new Response(stream, { headers: streamHeaders });
     }
     return jsonResponse({ error: 'All LLM providers failed', message: String(lastErr || 'unknown') }, 502);
   }
