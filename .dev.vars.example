@@ -1,5 +1,6 @@
 MUAPI_API_KEY=your_muapi_api_key_here
 OPENROUTER_API_KEY=your_openrouter_api_key_here
+VENICE_API_KEY=your_venice_api_key_here
 # Optional overrides (defaults already set, only needed if you want non-OpenRouter):
 # OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 # OPENROUTER_MODEL=cognitivecomputations/dolphin-mistral-24b-venice-edition:free

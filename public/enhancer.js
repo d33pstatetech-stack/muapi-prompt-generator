@@ -5,7 +5,7 @@
 (function () {
   const DEFAULT_LLM = {
     providers: [
-      { baseUrl: "https://openrouter.ai/api/v1", model: "cognitivecomputations/dolphin-mistral-24b-venice-edition:free", apiKey: "" },
+      { baseUrl: "https://api.venice.ai/api/v1", model: "dolphin-mixtral", apiKey: "" },
       { baseUrl: "https://openrouter.ai/api/v1", model: "openrouter/free", apiKey: "" },
     ],
   };
