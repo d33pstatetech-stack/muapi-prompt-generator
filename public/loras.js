@@ -95,6 +95,148 @@
     }
   ];
 
+  // NSFW LoRA library — only adapters runnable on MuAPI (18+ only).
+  // FLUX.1-dev entries → flux-1-dev-style-lora-inference (lora_url).
+  // Wan 2.1 I2V entries → wan2.1-lora-i2v (lora_list).
+  // Wan 2.2 / unstamped entries have no MuAPI LoRA endpoint — excluded.
+  const NSFW_LORAS = [
+    {
+      id: "xey/sldr_flux_nsfw_v2-studio",
+      name: "sldr_flux_nsfw_v2-studio",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "",
+      file: "sldr_flux_nsfw_v2-studio.safetensors",
+      repo_url: "https://huggingface.co/xey/sldr_flux_nsfw_v2-studio",
+      file_url: "https://huggingface.co/xey/sldr_flux_nsfw_v2-studio/resolve/main/sldr_flux_nsfw_v2-studio.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "307 likes · 1.1M downloads. Photorealistic-NSFW adapter — realistic-anatomy pick. No documented trigger. 687 MB."
+    },
+    {
+      id: "lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1",
+      name: "Flux_Lustly.ai_Uncensored_nsfw_v1",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "",
+      file: "flux_lustly-ai_v1.safetensors",
+      repo_url: "https://huggingface.co/lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1",
+      file_url: "https://huggingface.co/lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1/resolve/main/flux_lustly-ai_v1.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "275 likes · 155.5K downloads. General uncensored adapter, photorealistic gallery. No trigger word. 344 MB."
+    },
+    {
+      id: "lexa862/NSFWmodel",
+      name: "NSFWmodel",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "Nude",
+      file: "NSFW_master.safetensors",
+      repo_url: "https://huggingface.co/lexa862/NSFWmodel",
+      file_url: "https://huggingface.co/lexa862/NSFWmodel/resolve/main/NSFW_master.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "78 likes · 459.7K downloads. Trigger 'Nude'. 172 MB, permissive unlicense."
+    },
+    {
+      id: "Keltezaa/NSFW_MASTER_FLUX",
+      name: "NSFW_MASTER_FLUX",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "NSFW",
+      file: "NSFW_master_Flux.safetensors",
+      repo_url: "https://huggingface.co/Keltezaa/NSFW_MASTER_FLUX",
+      file_url: "https://huggingface.co/Keltezaa/NSFW_MASTER_FLUX/resolve/main/NSFW_master_Flux.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "68 likes · 30.3K downloads. Triggers: NSFW, Pussy, Vagina, Nude. MIT. 172 MB."
+    },
+    {
+      id: "imagepipeline/flux_uncensored_nsfw_v2",
+      name: "flux_uncensored_nsfw_v2",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "",
+      file: "lora.safetensors",
+      repo_url: "https://huggingface.co/imagepipeline/flux_uncensored_nsfw_v2",
+      file_url: "https://huggingface.co/imagepipeline/flux_uncensored_nsfw_v2/resolve/main/lora.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "34 likes · 33.1K downloads. Tagged ultra-realistic — realistic-anatomy pick. No documented trigger. 687 MB."
+    },
+    {
+      id: "Muapi/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu",
+      name: "detailed-perfection (anatomy fixer)",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "perfection style",
+      file: "detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu.safetensors",
+      repo_url: "https://huggingface.co/Muapi/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu",
+      file_url: "https://huggingface.co/Muapi/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu/resolve/main/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "2 likes · 996 downloads. Anatomy fixer (hands/feet/face/body), trigger 'perfection style'. 673 MB."
+    },
+    {
+      id: "Market5/Wan_2.2-2.1_POV_Missionary-high",
+      name: "POV Missionary-high (Wan2.1)",
+      base_model: "Wan-AI/Wan2.1-I2V-14B-720P",
+      pipeline: "video-generation",
+      private: false,
+      instance_prompt: "",
+      file: "wan2.2_i2v_highnoise_pov_missionary_v1.0.safetensors",
+      repo_url: "https://huggingface.co/Market5/Wan_2.2-2.1_POV_Missionary-high",
+      file_url: "https://huggingface.co/Market5/Wan_2.2-2.1_POV_Missionary-high/resolve/main/wan2.2_i2v_highnoise_pov_missionary_v1.0.safetensors",
+      suggested_target: "wan2.1-lora-i2v (lora_list)",
+      replicate_model: "wavespeedai/wan-2.1-i2v-720p",
+      muapi_model: "wan2.1-lora-i2v",
+      note: "80 downloads. Stamped Wan 2.1 I2V 720P, missionary POV. Fills lora_list as {path, scale}. 307 MB."
+    },
+    {
+      id: "Market5/Double_Single_Handy_Blowjob",
+      name: "Handy Blowjob (Wan2.1)",
+      base_model: "Wan-AI/Wan2.1-I2V-14B-480P",
+      pipeline: "video-generation",
+      private: false,
+      instance_prompt: "",
+      file: "wan_dr34mj0b_t2v.safetensors",
+      repo_url: "https://huggingface.co/Market5/Double_Single_Handy_Blowjob",
+      file_url: "https://huggingface.co/Market5/Double_Single_Handy_Blowjob/resolve/main/wan_dr34mj0b_t2v.safetensors",
+      suggested_target: "wan2.1-lora-i2v (lora_list)",
+      replicate_model: "wavespeedai/wan-2.1-i2v-480p",
+      muapi_model: "wan2.1-lora-i2v",
+      note: "36 downloads. Stamped Wan 2.1 I2V 480P. Fills lora_list as {path, scale}. 154 MB."
+    },
+    {
+      id: "Market5/Assertive_Cowgirl",
+      name: "Assertive Cowgirl (Wan2.1)",
+      base_model: "Wan-AI/Wan2.1-I2V-14B-720P",
+      pipeline: "video-generation",
+      private: false,
+      instance_prompt: "",
+      file: "Wan22-I2V-HIGH-Hip_Slammin_Assertive_Cowgirl.safetensors",
+      repo_url: "https://huggingface.co/Market5/Assertive_Cowgirl",
+      file_url: "https://huggingface.co/Market5/Assertive_Cowgirl/resolve/main/Wan22-I2V-HIGH-Hip_Slammin_Assertive_Cowgirl.safetensors",
+      suggested_target: "wan2.1-lora-i2v (lora_list)",
+      replicate_model: "wavespeedai/wan-2.1-i2v-720p",
+      muapi_model: "wan2.1-lora-i2v",
+      note: "20 downloads. Stamped Wan 2.1 I2V 720P. Fills lora_list as {path, scale}. 307 MB."
+    }
+  ];
+
   function copyText(t, label){
     navigator.clipboard.writeText(t).then(()=> {
       if(window.showToast) showToast(label + ' copied', 'success');
@@ -228,11 +370,11 @@
     }
   }
 
-  function renderLoraList(){
-    const list = document.getElementById('loraListMuapi');
-    const hint = document.getElementById('loraHintMuapi');
-    if(!list) return;
-    list.innerHTML = USER_LORAS.map(l => `
+  function renderLoraListInto(listId, loras, hintId){
+    const list = document.getElementById(listId);
+    const hint = hintId ? document.getElementById(hintId) : null;
+    if(!list || !loras) return;
+    list.innerHTML = loras.map(l => `
       <div class="p-2 rounded-lg bg-gray-800/50 border border-gray-700 hover:border-purple-600/50 transition-colors">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
@@ -266,43 +408,45 @@
       </div>
     `).join('');
     if(hint) hint.classList.remove('hidden');
-    // Wire events
+    // Wire events (scoped to this list container)
     list.querySelectorAll('[data-copy-repo]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id=btn.getAttribute('data-copy-repo');
-        const l=USER_LORAS.find(x=>x.id===id);
+        const l=loras.find(x=>x.id===id);
         if(l) copyText(l.repo_url, 'Repo URL');
       });
     });
     list.querySelectorAll('[data-copy-file]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id=btn.getAttribute('data-copy-file');
-        const l=USER_LORAS.find(x=>x.id===id);
+        const l=loras.find(x=>x.id===id);
         if(l) copyText(l.file_url, 'File URL');
       });
     });
     list.querySelectorAll('[data-copy-trigger]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id=btn.getAttribute('data-copy-trigger');
-        const l=USER_LORAS.find(x=>x.id===id);
+        const l=loras.find(x=>x.id===id);
         if(l && l.instance_prompt) copyText(l.instance_prompt, 'Trigger');
       });
     });
     list.querySelectorAll('[data-fill-repo]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id=btn.getAttribute('data-fill-repo');
-        const l=USER_LORAS.find(x=>x.id===id);
+        const l=loras.find(x=>x.id===id);
         if(l) fillLoraForCurrentModel(l.repo_url, l.file_url);
       });
     });
     list.querySelectorAll('[data-fill-file]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id=btn.getAttribute('data-fill-file');
-        const l=USER_LORAS.find(x=>x.id===id);
+        const l=loras.find(x=>x.id===id);
         if(l) fillLoraForCurrentModel(l.file_url, l.repo_url);
       });
     });
   }
+  function renderLoraList(){ renderLoraListInto('loraListMuapi', (typeof USER_LORAS!=='undefined') ? USER_LORAS : [], 'loraHintMuapi'); }
+  function renderNsfwLoraList(){ renderLoraListInto('nsfwLoraListMuapi', (typeof NSFW_LORAS!=='undefined') ? NSFW_LORAS : [], 'nsfwLoraHintMuapi'); }
 
   function initLoraPicker(){
     const btn=document.getElementById('btnToggleLoraListMuapi');
@@ -322,12 +466,30 @@
         }
       });
     }
+    const nsfwBtn=document.getElementById('btnToggleNsfwLoraListMuapi');
+    const nsfwList=document.getElementById('nsfwLoraListMuapi');
+    if(nsfwBtn && nsfwList){
+      nsfwBtn.addEventListener('click', ()=>{
+        const hidden=nsfwList.classList.contains('hidden');
+        if(hidden){
+          nsfwList.classList.remove('hidden');
+          document.getElementById('nsfwLoraHintMuapi')?.classList.remove('hidden');
+          nsfwBtn.innerHTML='<i class="fas fa-chevron-up mr-1"></i> Hide NSFW LoRAs';
+          renderNsfwLoraList();
+        } else {
+          nsfwList.classList.add('hidden');
+          document.getElementById('nsfwLoraHintMuapi')?.classList.add('hidden');
+          nsfwBtn.innerHTML='<i class="fas fa-chevron-down mr-1"></i> Show NSFW LoRAs';
+        }
+      });
+    }
     // Re-render hint when model changes
     const origSelect = window.selectModel;
     if(origSelect){
       window.selectModel = async function(...a){
         const r=await origSelect(...a);
         if(list && !list.classList.contains('hidden')) renderLoraList();
+        if(nsfwList && !nsfwList.classList.contains('hidden')) renderNsfwLoraList();
         return r;
       };
     }
@@ -338,4 +500,5 @@
 
   // Expose for debugging
   window.USER_LORAS = USER_LORAS;
+  window.NSFW_LORAS = (typeof NSFW_LORAS!=='undefined') ? NSFW_LORAS : [];
 })();
