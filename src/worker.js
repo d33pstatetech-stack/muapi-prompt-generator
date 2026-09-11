@@ -392,12 +392,30 @@ async function handleApiRoute(request, env, path) {
     }
 
     if (!apiRes.ok) {
-      const msg = (data && (data.detail || data.error || data.message))
+      const raw = (data && (data.detail || data.error || data.message))
         || responseText
         || `HTTP ${apiRes.status}`;
+      // MuAPI nests the reason, e.g. detail = { error: { code, message } }.
+      // String(obj) would destroy it into "[object Object]" — serialize instead.
+      const flatErr = (v) => {
+        if (typeof v === 'string') return v;
+        try {
+          const o = (v && typeof v === 'object' && v.error && typeof v.error === 'object') ? v.error : v;
+          if (o && typeof o === 'object' && !Array.isArray(o)) {
+            const parts = [];
+            if (o.code) parts.push(`[${o.code}]`);
+            if (o.message) parts.push(String(o.message));
+            if (!parts.length) return JSON.stringify(o).slice(0, 800);
+            const rest = Object.keys(o).filter(k => k !== 'code' && k !== 'message');
+            if (rest.length) parts.push(JSON.stringify(Object.fromEntries(rest.map(k => [k, typeof o[k] === 'string' ? o[k].slice(0, 200) : o[k]]))).slice(0, 400));
+            return parts.join(' ');
+          }
+          return JSON.stringify(v).slice(0, 800);
+        } catch { return `HTTP ${apiRes.status}`; }
+      };
       return jsonResponse({
         error: `MuAPI error (${apiRes.status})`,
-        message: String(msg),
+        message: flatErr(raw),
         status: apiRes.status,
       }, apiRes.status);
     }

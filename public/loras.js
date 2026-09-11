@@ -278,16 +278,13 @@
 
     // Handle array types (loras, lora_list)
     if(spec && spec.type==='array'){
-      // For loras: expected [{path: url, scale: 1.0}]
-      // For lora_list: similar but may be LoraItem
-      // We'll set as array with one entry
+      // For loras/lora_list: expected [{path: url, scale: 1.0}]
+      // MuAPI's path must resolve to weights — prefer the direct
+      // .safetensors file URL over the repo page URL (a repo page
+      // URL fails fast at LoRA download).
       const scale = 1.0;
-      // Decide which URL to use: repo_url is most compatible, but some expect direct file_url
-      // Provide repo_url by default, as Replicate/MuAPI can resolve repo
-      valueToFill = [{ path: repoUrl, scale: scale }];
-      // Special for lora_list which may expect {path, scale} as well
-      // For krea-v2-turbo-lora, example: [{'path': '...', 'scale': 1.0}]
-      // We'll use that
+      const direct = [repoUrl, fileUrl].find(u => u && /\.safetensors(\?|#|$)/i.test(u)) || repoUrl;
+      valueToFill = [{ path: direct, scale: scale }];
     } else if(spec && spec.type==='string'){
       // For lora_url, lora_weights, extra_lora
       // Use repo_url (or file_url if the field expects direct file)
