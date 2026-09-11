@@ -756,7 +756,24 @@ function normalizeLoraItems(v){
     if (/^huggingface\.co\//i.test(s)) s = 'https://' + s;
     return s;
   };
-  const arr = Array.isArray(v) ? v : String(v ?? '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  // Accept an already-serialized JSON array/object (e.g. pasted from the
+  // picker's copied Fill value) — don't split it on commas.
+  const asArray = (x) => {
+    if (Array.isArray(x)) return x;
+    if (typeof x === 'string') {
+      const t = x.trim();
+      if (/^[\[{]/.test(t)) {
+        try {
+          const j = JSON.parse(t);
+          if (Array.isArray(j)) return j;
+          if (j && typeof j === 'object') return [j];
+        } catch {}
+      }
+      return t.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    }
+    return [x];
+  };
+  const arr = asArray(v);
   return arr.map(el => {
     if (el && typeof el === 'object') return { path: fix(el.path || el.url || ''), scale: typeof el.scale === 'number' ? el.scale : 1 };
     return { path: fix(el), scale: 1 };

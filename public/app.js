@@ -592,7 +592,16 @@ async function generate() {
   };
   for (const k of ['lora_list', 'loras']) {
     if (params[k] === undefined) continue;
-    const arr = Array.isArray(params[k]) ? params[k] : String(params[k]).split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    let arr;
+    if (Array.isArray(params[k])) arr = params[k];
+    else {
+      const t = String(params[k]).trim();
+      let j = null;
+      // Already-serialized JSON (e.g. pasted from the picker's copied Fill
+      // value) — parse it, don't split on commas.
+      if (/^[\[{]/.test(t)) { try { j = JSON.parse(t); } catch {} }
+      arr = Array.isArray(j) ? j : (j && typeof j === 'object' ? [j] : t.split(/[\n,]+/).map(s => s.trim()).filter(Boolean));
+    }
     const norm = arr.map(el => (el && typeof el === 'object')
       ? { path: fixLoraUrl(el.path || el.url || ''), scale: typeof el.scale === 'number' ? el.scale : 1 }
       : { path: fixLoraUrl(el), scale: 1 }).filter(o => o.path);
