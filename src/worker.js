@@ -746,6 +746,16 @@ async function handleApiRoute(request, env, path) {
  * receives params it actually supports, with correct types (int/float/bool/array).
  * Falls back to allowlisting unknown keys as-is (forward-compatible for new models like Wan 3.0).
  */
+// Normalize any lora_list/loras value into [{path, scale}] so pasted URL
+// strings (or mixed arrays) pass MuAPI validation instead of 422ing.
+function normalizeLoraItems(v){
+  const arr = Array.isArray(v) ? v : String(v ?? '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  return arr.map(el => {
+    if (el && typeof el === 'object') return { path: el.path || el.url || '', scale: typeof el.scale === 'number' ? el.scale : 1 };
+    return { path: String(el), scale: 1 };
+  }).filter(o => o.path);
+}
+
 async function buildApiBody(modelId, params, env) {
   let schemaParams = null;
   try {
@@ -756,6 +766,13 @@ async function buildApiBody(modelId, params, env) {
   const body = {};
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue;
+    // lora_list/loras must be [{path, scale}] — a pasted URL string or mixed
+    // array would fail MuAPI validation (lora_list[0] must be a dict).
+    if (k === 'lora_list' || k === 'loras') {
+      const norm = normalizeLoraItems(v);
+      if (norm.length) body[k] = norm;
+      continue;
+    }
     const spec = schemaParams ? schemaParams[k] : null;
     if (spec) {
       if (spec.type === 'number') {
