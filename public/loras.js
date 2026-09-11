@@ -176,21 +176,6 @@
       note: "34 likes · 33.1K downloads. Tagged ultra-realistic — realistic-anatomy pick. No documented trigger. 687 MB."
     },
     {
-      id: "Muapi/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu",
-      name: "detailed-perfection (anatomy fixer)",
-      base_model: "black-forest-labs/FLUX.1-dev",
-      pipeline: "text-to-image",
-      private: false,
-      instance_prompt: "perfection style",
-      file: "detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu.safetensors",
-      repo_url: "https://huggingface.co/Muapi/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu",
-      file_url: "https://huggingface.co/Muapi/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu/resolve/main/detailed-perfection-style-hands-feet-face-body-all-in-one-xl-f1d-sd1.5-pony-illu.safetensors",
-      suggested_target: "flux-1-dev-style-lora-inference (lora_url)",
-      replicate_model: "d33pstatetech-stack/aznten_replicate",
-      muapi_model: "flux-1-dev-style-lora-inference",
-      note: "2 likes · 996 downloads. Anatomy fixer (hands/feet/face/body), trigger 'perfection style'. 673 MB."
-    },
-    {
       id: "Market5/Wan_2.2-2.1_POV_Missionary-high",
       name: "POV Missionary-high (Wan2.1)",
       base_model: "Wan-AI/Wan2.1-I2V-14B-720P",
