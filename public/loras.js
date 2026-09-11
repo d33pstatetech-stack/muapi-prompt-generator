@@ -36,6 +36,21 @@
       note: "FLUX.1-schnell LoRA, trigger 'aznten'. Checkpoint variant aznten-flux-schnell-mimicpc-000004.safetensors also in repo. Use as extra_lora with model=schnell."
     },
     {
+      id: "D33pStateTech/aznten-Qwen-Image-2512-Lora-WaveSpeed-AI",
+      name: "aznten-Qwen-Image-2512-Lora-WaveSpeed-AI",
+      base_model: "Qwen/Qwen-Image-2512",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "aznten",
+      file: "aznten-Qwen-Image-2512-Lora-WaveSpeed-AI.safetensors",
+      repo_url: "https://huggingface.co/D33pStateTech/aznten-Qwen-Image-2512-Lora-WaveSpeed-AI",
+      file_url: "https://huggingface.co/D33pStateTech/aznten-Qwen-Image-2512-Lora-WaveSpeed-AI/resolve/main/aznten-Qwen-Image-2512-Lora-WaveSpeed-AI.safetensors",
+      suggested_target: "qwen-image-text-to-image-2512-lora (loras)",
+      replicate_model: "qwen/qwen-image",
+      muapi_model: "qwen-image-text-to-image-2512-lora",
+      note: "Qwen-Image-2512 LoRA, trigger 'aznten'. For MuAPI use qwen-image-text-to-image-2512-lora → loras: [{\"path\":\"...\",\"scale\":1}]. For Replicate use qwen/qwen-image → lora_weights."
+    },
+    {
       id: "D33pStateTech/d33pstateten",
       name: "d33pstateten",
       base_model: "krea/Krea-2-Raw",
