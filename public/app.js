@@ -583,12 +583,19 @@ async function generate() {
   }
   // lora_list/loras must be [{path, scale}] — wrap pasted URL strings so
   // MuAPI validation passes (mirrors worker normalizeLoraItems).
+  // Replicate docs-format (huggingface.co/...) is rejected by MuAPI —
+  // restore the scheme automatically.
+  const fixLoraUrl = (u) => {
+    let s = String(u ?? '').trim();
+    if (/^huggingface\.co\//i.test(s)) s = 'https://' + s;
+    return s;
+  };
   for (const k of ['lora_list', 'loras']) {
     if (params[k] === undefined) continue;
     const arr = Array.isArray(params[k]) ? params[k] : String(params[k]).split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
     const norm = arr.map(el => (el && typeof el === 'object')
-      ? { path: el.path || el.url || '', scale: typeof el.scale === 'number' ? el.scale : 1 }
-      : { path: String(el), scale: 1 }).filter(o => o.path);
+      ? { path: fixLoraUrl(el.path || el.url || ''), scale: typeof el.scale === 'number' ? el.scale : 1 }
+      : { path: fixLoraUrl(el), scale: 1 }).filter(o => o.path);
     if (norm.length) params[k] = norm; else delete params[k];
   }
 

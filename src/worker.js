@@ -749,10 +749,17 @@ async function handleApiRoute(request, env, path) {
 // Normalize any lora_list/loras value into [{path, scale}] so pasted URL
 // strings (or mixed arrays) pass MuAPI validation instead of 422ing.
 function normalizeLoraItems(v){
+  const fix = (u) => {
+    let s = String(u ?? '').trim();
+    // Replicate docs-format (huggingface.co/owner/...) is rejected by MuAPI
+    // ("Invalid URL or repository name") — restore the scheme automatically.
+    if (/^huggingface\.co\//i.test(s)) s = 'https://' + s;
+    return s;
+  };
   const arr = Array.isArray(v) ? v : String(v ?? '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
   return arr.map(el => {
-    if (el && typeof el === 'object') return { path: el.path || el.url || '', scale: typeof el.scale === 'number' ? el.scale : 1 };
-    return { path: String(el), scale: 1 };
+    if (el && typeof el === 'object') return { path: fix(el.path || el.url || ''), scale: typeof el.scale === 'number' ? el.scale : 1 };
+    return { path: fix(el), scale: 1 };
   }).filter(o => o.path);
 }
 
