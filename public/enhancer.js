@@ -257,9 +257,15 @@
       });
       clearTimeout(t);
       if (!res.ok) {
-        // Try to parse JSON error
+        // Try to parse JSON error — surface per-provider chain when the backend provides it
         let msg = "Enhance failed";
-        try { const j = await res.json(); msg = j.message || j.error || msg; } catch { try { msg = await res.text(); } catch {} }
+        try {
+          const j = await res.json();
+          msg = j.message || j.error || msg;
+          if (j.providersTried && j.providersTried.length) {
+            msg += ` [tried: ${j.providersTried.join(' | ')}]`;
+          }
+        } catch { try { msg = await res.text(); } catch {} }
         throw new Error(msg);
       }
 

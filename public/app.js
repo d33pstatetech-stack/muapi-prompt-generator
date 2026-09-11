@@ -581,7 +581,7 @@ async function generate() {
     showStatus('Processing...', `ID: ${data.requestId}`, true);
     pollForResult(data.requestId, data.cost);
   } catch (e) {
-    showStatus('Error', e.message, false);
+    showStatus('Error', `${e.message} [model: ${currentModel?.id || 'none'}]`, false);
     btn.disabled = false;
     btnText.classList.remove('hidden');
     btnSpin.classList.add('hidden');
@@ -606,7 +606,7 @@ function pollForResult(requestId, initialCost) {
         resetGenButton();
       } else if (data.status === 'failed') {
         clearInterval(pollTimer);
-        showStatus('Failed', data.error || 'Generation failed', false);
+        showStatus('Failed', `${data.error || 'Generation failed'} [id: ${requestId} | model: ${currentModel?.id || 'unknown'}]`, false);
         resetGenButton();
       } else {
         const pct = data.status === 'processing' ? 60 : data.status === 'queued' ? 20 : 40;

@@ -553,12 +553,17 @@ async function handleApiRoute(request, env, path) {
 
     const llmCfg = await getLLMConfigWorker(env);
     let lastErr = null;
+    const tried = [];
+    const noteFail = (model, base, msg) => {
+      lastErr = msg;
+      tried.push(`${model} @ ${base} → ${String(msg).slice(0, 220)}`);
+    };
 
     for (const p of llmCfg.providers) {
       const baseUrl = (p.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
       const isVenice = baseUrl.includes('venice.ai');
       const apiKey = p.apiKey || (isVenice ? (env.VENICE_API_KEY || '') : (env.OPENROUTER_API_KEY || '')) || '';
-      if (!apiKey) { lastErr = 'Missing API key for ' + p.model; continue; }
+      if (!apiKey) { noteFail(p.model, baseUrl, 'Missing API key'); continue; }
       let llmRes;
       // Fail-fast: 12s abort for initial connect, no retry per model (single try)
       const ctrl = new AbortController();
@@ -586,7 +591,7 @@ async function handleApiRoute(request, env, path) {
       } catch (e) {
         clearTimeout(to);
         const isAbort = e.name === 'AbortError';
-        lastErr = isAbort ? `Timeout 12s for ${p.model} @ ${baseUrl}` : e.message;
+        noteFail(p.model, baseUrl, isAbort ? `Timeout 12s` : e.message);
         continue;
       }
       if (!llmRes.ok) {
@@ -595,7 +600,7 @@ async function handleApiRoute(request, env, path) {
         const msg = (j && (j.error?.message || j.error)) || txt || `HTTP ${llmRes.status}`;
         // Fast-path for content filtering / policy refusal — immediately try next provider (Venice uncensored)
         const isFilter = /content_filter|policy|refusal|blocked by|filtered/i.test(msg) || j?.error?.code === 'content_filter';
-        lastErr = msg + (isFilter ? ' [content_filter → trying next provider]' : '');
+        noteFail(p.model, baseUrl, msg + (isFilter ? ' [content_filter → trying next provider]' : ''));
         // No retry to same model — continue to next provider immediately
         continue;
       }
@@ -604,7 +609,7 @@ async function handleApiRoute(request, env, path) {
         try {
           const j = await llmRes.json();
           const content = j.choices?.[0]?.message?.content || j.choices?.[0]?.delta?.content || '';
-          if (!content) { lastErr = 'Empty LLM response'; continue; }
+          if (!content) { noteFail(p.model, baseUrl, 'Empty LLM response'); continue; }
           const techniques = deriveTechniques(content, ctx);
           try {
             await DB.prepare('INSERT INTO prompts (kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
@@ -613,7 +618,7 @@ async function handleApiRoute(request, env, path) {
           } catch {}
           return jsonResponse({ optimized_prompt: content, enhanced: content, techniques_applied: techniques, providerUsed: baseUrl, modelUsed: p.model, ctx });
         } catch (e) {
-          lastErr = e.message;
+          noteFail(p.model, baseUrl, e.message);
           continue;
         }
       }
@@ -666,7 +671,7 @@ async function handleApiRoute(request, env, path) {
                 if (d === '[DONE]' || !d) continue;
                 try {
                   const j = JSON.parse(d);
-                  const delta = j.choices?.[0]?.delta?.content || '';
+                  const delta = j.choices?.[0]?.delta?.content || j.choices?.[0]?.delta?.reasoning_content || '';
                   if (delta) fullEnhanced += delta;
                 } catch {}
               }
@@ -680,7 +685,7 @@ async function handleApiRoute(request, env, path) {
       // Also send context as initial SSE comment so frontend can show thinking
       return new Response(stream, { headers: streamHeaders });
     }
-    return jsonResponse({ error: 'All LLM providers failed', message: String(lastErr || 'unknown') }, 502);
+    return jsonResponse({ error: 'All LLM providers failed', message: String(lastErr || 'unknown'), providersTried: tried, modelId: model.id }, 502);
   }
 
   // ─── GET /api/prompts ───
