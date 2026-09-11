@@ -281,7 +281,8 @@
       // For loras/lora_list: expected [{path: url, scale: 1.0}]
       // MuAPI's path must resolve to weights — prefer the direct
       // .safetensors file URL over the repo page URL (a repo page
-      // URL fails fast at LoRA download).
+      // URL fails or hangs at LoRA download). Works for both Fill
+      // buttons since we pick whichever arg is the direct file.
       const scale = 1.0;
       const direct = [repoUrl, fileUrl].find(u => u && /\.safetensors(\?|#|$)/i.test(u)) || repoUrl;
       valueToFill = [{ path: direct, scale: scale }];

@@ -616,6 +616,7 @@ async function generate() {
 
 function pollForResult(requestId, initialCost) {
   const startTime = Date.now();
+  const MAX_POLL_MS = 15 * 60 * 1000; // stop polling after 15m — job is stuck/queued server-side
   if (pollTimer) clearInterval(pollTimer);
 
   pollTimer = setInterval(async () => {
@@ -624,6 +625,12 @@ function pollForResult(requestId, initialCost) {
       const data = await res.json();
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
+      if (Date.now() - startTime > MAX_POLL_MS) {
+        clearInterval(pollTimer);
+        showStatus('Still running', `No result after 15m — job is likely queued or stuck server-side. ID: ${requestId} — check it on the MuAPI dashboard. Browser stopped polling; nothing was charged unless it completes.`, false);
+        resetGenButton();
+        return;
+      }
       if (data.status === 'completed') {
         clearInterval(pollTimer);
         showStatus('Completed', `Done in ${elapsed}s`, false);
