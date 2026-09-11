@@ -6,11 +6,41 @@
 (function(){
   const USER_LORAS = [
     {
+      id: "D33pStateTech/aznten-flux.1-dev-replicate",
+      name: "aznten-flux.1-dev-replicate",
+      base_model: "black-forest-labs/FLUX.1-dev",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "aznten",
+      file: "aznten-flux.1-dev-replicate_Lora.safetensors",
+      repo_url: "https://huggingface.co/D33pStateTech/aznten-flux.1-dev-replicate",
+      file_url: "https://huggingface.co/D33pStateTech/aznten-flux.1-dev-replicate/resolve/main/aznten-flux.1-dev-replicate_Lora.safetensors",
+      suggested_target: "flux-1-dev-style-lora-inference (lora_url) / aznten_replicate (extra_lora)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-1-dev-style-lora-inference",
+      note: "FLUX.1-dev LoRA, trigger 'aznten'. Use as lora_url on MuAPI or extra_lora on Replicate AZNTEN (model=dev)."
+    },
+    {
+      id: "D33pStateTech/aznten-flux-schnell-mimicpc",
+      name: "aznten-flux-schnell-mimicpc",
+      base_model: "black-forest-labs/FLUX.1-schnell",
+      pipeline: "text-to-image",
+      private: false,
+      instance_prompt: "aznten",
+      file: "aznten-flux-schnell-mimicpc.safetensors",
+      repo_url: "https://huggingface.co/D33pStateTech/aznten-flux-schnell-mimicpc",
+      file_url: "https://huggingface.co/D33pStateTech/aznten-flux-schnell-mimicpc/resolve/main/aznten-flux-schnell-mimicpc.safetensors",
+      suggested_target: "aznten_replicate (model=schnell, extra_lora)",
+      replicate_model: "d33pstatetech-stack/aznten_replicate",
+      muapi_model: "flux-schnell",
+      note: "FLUX.1-schnell LoRA, trigger 'aznten'. Checkpoint variant aznten-flux-schnell-mimicpc-000004.safetensors also in repo. Use as extra_lora with model=schnell."
+    },
+    {
       id: "D33pStateTech/d33pstateten",
       name: "d33pstateten",
       base_model: "krea/Krea-2-Raw",
       pipeline: "text-to-image",
-      private: true,
+      private: false,
       instance_prompt: "aznten",
       file: "pytorch_lora_weights.safetensors",
       repo_url: "https://huggingface.co/D33pStateTech/d33pstateten",
@@ -18,7 +48,7 @@
       suggested_target: "krea-v2-turbo-lora (loras) or any Krea-2 via diffusers",
       replicate_model: "krea/krea-2-large",
       muapi_model: "krea-v2-turbo-lora",
-      note: "Krea-2-Raw LoRA, trigger aznten. For MuAPI use krea-v2-turbo-lora → loras: [{\"path\":\"...\",\"scale\":1}]"
+      note: "Krea-2-Raw LoRA, trigger aznten. Public repo. For MuAPI use krea-v2-turbo-lora → loras: [{\"path\":\"...\",\"scale\":1}]"
     },
     {
       id: "D33pStateTech/d33pstateLora",
