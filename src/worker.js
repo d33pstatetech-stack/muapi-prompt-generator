@@ -19,10 +19,9 @@ const OPENAPI_URL = 'https://api.muapi.ai/openapi.json';
 const PROTECTED_API_PREFIXES = ['/api/generate', '/api/upload', '/api/predictions', '/api/estimate', '/api/sync', '/api/enhance', '/api/optimize', '/api/llm-config', '/api/prompts'];
 
 const DEFAULT_LLM_PROVIDERS = [
-  { baseUrl: 'https://api.venice.ai/api/v1', model: 'venice-uncensored', apiKey: '' },
   { baseUrl: 'https://openrouter.ai/api/v1', model: 'liquid/lfm-2.5-2.6b:free', apiKey: '' },
-  { baseUrl: 'https://openrouter.ai/api/v1', model: 'thinkingmachines/inkling:free', apiKey: '' },
   { baseUrl: 'https://openrouter.ai/api/v1', model: 'openrouter/free', apiKey: '' },
+  { baseUrl: 'https://api.venice.ai/api/v1', model: 'venice-uncensored', apiKey: '' },
 ];
 const MODEL_PRESETS = {
   seedance: `Seedance models: Convert to screenplay format with [Shot Type] + [Subject] + [Action] + temporal transitions + [Lighting] + [Audio cues]. Use @image1..@image9 for omni_reference when images are provided. Duration 4-15s, aspect 21:9/16:9/4:3/1:1/3:4/9:16.`,
