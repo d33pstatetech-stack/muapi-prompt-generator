@@ -294,6 +294,7 @@
             if (d === "[DONE]" || !d) continue;
             try {
               const j = JSON.parse(d);
+              if (j.history_id) { window.lastEnhancementId = j.history_id; continue; }
               const delta = j.choices?.[0]?.delta?.content || "";
               if (delta) {
                 full += delta;
@@ -310,6 +311,7 @@
         // Fallback JSON (non-streaming)
         const data = await res.json();
         full = data.enhanced || "";
+        if (data.history_id) window.lastEnhancementId = data.history_id;
         providerUsed = data.providerUsed || providerUsed;
         modelUsed = data.modelUsed || modelUsed;
         const outEl = document.getElementById(outputId);

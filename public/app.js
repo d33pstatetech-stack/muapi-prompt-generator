@@ -612,12 +612,18 @@ async function generate() {
     const res = await fetch(`${API}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modelId: currentModel.id, params }),
+      body: JSON.stringify({ modelId: currentModel.id, params, enhancementId: window.lastEnhancementId || null }),
     });
     const data = await res.json();
     if (!res.ok) {
       const errMsg = errText(data.message, '') || errText(data.error, '') || errText(data.details?.detail, '') || `Generation failed (${res.status})`;
       throw new Error(errMsg);
+    }
+    if (data.requestId && window.lastEnhancementId) {
+      // Link run → enhancement in shared history (fire-and-forget)
+      fetch(`${API}/history/link`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'muapi', external_job_id: data.requestId, enhancement_id: window.lastEnhancementId }) }).catch(() => {});
+      window.lastEnhancementId = null;
     }
 
     showStatus('Processing...', `ID: ${data.requestId}`, true);
@@ -650,6 +656,7 @@ function pollForResult(requestId, initialCost) {
       if (data.status === 'completed') {
         clearInterval(pollTimer);
         showStatus('Completed', `Done in ${elapsed}s`, false);
+        window.lastMuapiJob = requestId;
         showOutput(data.outputs, initialCost, elapsed);
         addToHistory(requestId, data.outputs, initialCost, elapsed);
         resetGenButton();
@@ -711,8 +718,24 @@ function showOutput(outputs, cost, elapsed) {
   meta.innerHTML = `
     <span><i class="fas fa-clock"></i> ${elapsed}s</span>
     <span><i class="fas fa-dollar-sign"></i> ${costStr}</span>
-    <span><i class="fas fa-images"></i> ${outputs.length} output${outputs.length > 1 ? 's' : ''}</span>`;
+    <span><i class="fas fa-images"></i> ${outputs.length} output${outputs.length > 1 ? 's' : ''}</span>
+    <span id="muRateRow">rate: ${[1,2,3,4,5].map(i => `<button data-mrate="${i}" style="color:#52525b" title="rate ${i}">★</button>`).join('')}</span>`;
   card.dataset.url = url;
+  meta.querySelectorAll('[data-mrate]').forEach((b) => b.addEventListener('click', () => rateMuapiJob(Number(b.dataset.mrate))));
+}
+
+// Rate the last completed MuAPI job 1-5 into shared history
+async function rateMuapiJob(n) {
+  const jobId = window.lastMuapiJob || '';
+  if (!jobId) { showToast('No job to rate yet', 'error'); return; }
+  try {
+    const r = await fetch(`${API}/history/rate`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'muapi', external_job_id: jobId, rating: n }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    showToast(`Rated ${n}★ — saved to shared history`, 'success');
+    document.querySelectorAll('#muRateRow [data-mrate]').forEach((b) => { b.style.color = Number(b.dataset.mrate) <= n ? '#fbbf24' : '#52525b'; });
+  } catch (e) { showToast('Rate failed: ' + e.message, 'error'); }
 }
 
 function addToHistory(requestId, outputs, cost, elapsed) {
@@ -722,6 +745,15 @@ function addToHistory(requestId, outputs, cost, elapsed) {
   if (history.length > 30) history.pop();
   saveHistory();
   renderHistory();
+  // Auto-save outputs to R2 (genai-assets) so expiring MuAPI CDN URLs stay
+  // linked in shared history — fire-and-forget, display keeps CDN URLs.
+  try {
+    const urls = (outputs || []).filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)).slice(0, 10);
+    if (urls.length) {
+      fetch(`${API}/muapi/save-outputs`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls, model: currentModel?.id, jobId: requestId }) }).catch(() => {});
+    }
+  } catch {}
 }
 
 function renderHistory() {

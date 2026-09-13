@@ -16,7 +16,7 @@
 const MUAPI_BASE = 'https://api.muapi.ai/api/v1';
 const OPENAPI_URL = 'https://api.muapi.ai/openapi.json';
 
-const PROTECTED_API_PREFIXES = ['/api/generate', '/api/upload', '/api/predictions', '/api/estimate', '/api/sync', '/api/enhance', '/api/optimize', '/api/llm-config', '/api/prompts'];
+const PROTECTED_API_PREFIXES = ['/api/generate', '/api/upload', '/api/predictions', '/api/estimate', '/api/sync', '/api/enhance', '/api/optimize', '/api/llm-config', '/api/prompts', '/api/muapi', '/api/history'];
 
 const DEFAULT_LLM_PROVIDERS = [
   { baseUrl: 'https://openrouter.ai/api/v1', model: 'liquid/lfm-2.5-2.6b:free', apiKey: '' },
@@ -165,8 +165,101 @@ function isAccessAuthenticated(request) {
   return !!(jwt || email);
 }
 
+// ─── Shared history (genai-history D1, bound as HISTORY) ───
+// Same contract as the replicate worker: fire-and-forget via bg(), history
+// must never break the generation path.
+function bg(ctx, p) {
+  try {
+    const q = Promise.resolve(p).catch(() => {});
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(q);
+    else q.catch(() => {});
+  } catch {}
+}
+function truncJson(v, max = 32768) {
+  let s = '';
+  try { s = JSON.stringify(v ?? null); } catch { s = 'null'; }
+  if (s.length > max) return s.slice(0, max) + `...{"__truncated":true,"__orig_len":${s.length}}`;
+  return s;
+}
+function extractLoras(input) {
+  const out = {};
+  try {
+    const walk = (o, prefix) => {
+      if (!o || typeof o !== 'object') return;
+      for (const [k, v] of Object.entries(o)) {
+        if (/lora/i.test(k)) { try { out[prefix + k] = v; } catch {} }
+        else if (v && typeof v === 'object') walk(v, prefix + k + '.');
+      }
+    };
+    walk(input, '');
+  } catch {}
+  return out;
+}
+function histDB(env) { return env.HISTORY || null; }
+async function histInsertEnhancement(env, row) {
+  const paramsJson = truncJson(row.params || {});
+  const lorasJson = truncJson(row.loras && Object.keys(row.loras).length ? row.loras : extractLoras(row.params || {}));
+  const H = histDB(env);
+  if (H) {
+    try {
+      const r = await H.prepare(
+        'INSERT INTO enhancements (source_app, kind, raw_prompt, enhanced_prompt, target_provider, target_model, params_json, loras_json, llm_provider, llm_model, template_version, retrieval_refs_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(row.source_app, row.kind, row.raw_prompt, row.enhanced, row.target_provider || '', row.target_model, paramsJson, lorasJson, row.llm_provider || '', row.llm_model || '', 'v0-preset', '[]').run();
+      return (r && r.meta && r.meta.last_row_id) || null;
+    } catch (e) { console.error('HISTORY enhancement insert failed, legacy fallback', e); }
+  }
+  try {
+    await env.DB.prepare('INSERT INTO prompts (kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+      row.kind, row.raw_prompt, row.enhanced, row.target_model, paramsJson, row.llm_provider || '', row.llm_model || ''
+    ).run();
+  } catch {}
+  return null;
+}
+async function histInsertRun(env, row) {
+  const H = histDB(env);
+  if (!H) return null;
+  try {
+    const inputJson = truncJson(row.input || {});
+    const lorasJson = truncJson(row.loras && Object.keys(row.loras).length ? row.loras : extractLoras(row.input || {}));
+    const r = await H.prepare(
+      'INSERT INTO runs (source_app, provider, model, input_json, loras_json, enhancement_id, external_job_id, status, cost_hint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(row.source_app, row.provider, row.model, inputJson, lorasJson, row.enhancement_id || null, row.external_job_id || '', row.status || 'submitted', row.cost_hint || '').run();
+    return (r && r.meta && r.meta.last_row_id) || null;
+  } catch (e) { console.error('HISTORY run insert failed', e); return null; }
+}
+async function histUpdateRun(env, provider, jobId, patch) {
+  const H = histDB(env);
+  if (!H || !jobId) return;
+  try {
+    const sets = [], vals = [];
+    if (patch.status !== undefined) { sets.push('status = ?'); vals.push(patch.status); }
+    if (patch.output_urls !== undefined) { sets.push('output_urls_json = ?'); vals.push(truncJson(patch.output_urls)); }
+    if (patch.r2_keys !== undefined) { sets.push('r2_keys_json = ?'); vals.push(truncJson(patch.r2_keys)); }
+    if (!sets.length) return;
+    sets.push(`updated_at = datetime('now')`);
+    await H.prepare(`UPDATE runs SET ${sets.join(', ')} WHERE provider = ? AND external_job_id = ?`).bind(...vals, provider, jobId).run();
+  } catch (e) { console.error('HISTORY run update failed', e); }
+}
+// Pull MuAPI output URLs out of a result payload (shape varies per model)
+function extractMuapiOutputs(data) {
+  const grab = (v, depth) => {
+    if (!v || depth > 3) return [];
+    if (typeof v === 'string' && /^https?:\/\//.test(v) && /\.(mp4|webm|mov|png|jpe?g|webp|gif|mp3|wav)(\?|$)/i.test(v)) return [v];
+    if (Array.isArray(v)) return v.flatMap((x) => grab(x, depth + 1));
+    if (typeof v === 'object') {
+      const out = [];
+      for (const [k, x] of Object.entries(v)) {
+        if (/^(outputs?|images?|videos?|audios?|files?|urls?|result|data|media)$/i.test(k)) out.push(...grab(x, depth + 1));
+      }
+      return out;
+    }
+    return [];
+  };
+  try { return [...new Set(grab(data, 0))].slice(0, 10); } catch { return []; }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -202,7 +295,7 @@ export default {
     // API routes
     if (path.startsWith('/api/')) {
       try {
-        const response = await handleApiRoute(request, env, path);
+        const response = await handleApiRoute(request, env, path, ctx);
         // Add CORS to API responses
         for (const [k, v] of Object.entries(corsHeaders)) {
           response.headers.set(k, v);
@@ -219,7 +312,7 @@ export default {
   }
 };
 
-async function handleApiRoute(request, env, path) {
+async function handleApiRoute(request, env, path, ctx) {
   const { DB, MUAPI_API_KEY, MUAPI_BASE_URL } = env;
   const base = MUAPI_BASE_URL || MUAPI_BASE;
 
@@ -420,13 +513,24 @@ async function handleApiRoute(request, env, path) {
       }, apiRes.status);
     }
 
-    return jsonResponse({
+    const genRes = jsonResponse({
       requestId: data.request_id,
       status: data.status || 'processing',
       cost: data.cost,
       model: model.name,
       endpoint: model.endpoint,
     });
+    if (data.request_id) {
+      let enhId = null;
+      try { enhId = parseInt(body.enhancementId, 10) || null; } catch {}
+      bg(ctx, histInsertRun(env, {
+        source_app: 'muapi', provider: 'muapi', model: modelId, input: apiBody,
+        enhancement_id: enhId, external_job_id: String(data.request_id),
+        status: data.status || 'processing',
+        cost_hint: data.cost ? truncJson(data.cost, 500) : '',
+      }));
+    }
+    return genRes;
   }
 
   // ─── GET /api/predictions/:id ───
@@ -441,6 +545,12 @@ async function handleApiRoute(request, env, path) {
       headers: { 'x-api-key': MUAPI_API_KEY },
     });
     const data = await apiRes.json();
+    if (data && (data.status === 'completed' || data.status === 'failed')) {
+      bg(ctx, histUpdateRun(env, 'muapi', requestId, {
+        status: data.status,
+        output_urls: data.status === 'completed' ? extractMuapiOutputs(data) : [],
+      }));
+    }
     return jsonResponse(data, apiRes.status);
   }
 
@@ -631,12 +741,12 @@ async function handleApiRoute(request, env, path) {
           // OpenRouter reports the underlying model (routers); Venice echoes its own.
           const actualModel = j.model || p.model;
           const techniques = deriveTechniques(content, ctx);
-          try {
-            await DB.prepare('INSERT INTO prompts (kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
-              isOptimize ? 'optimized' : 'enhanced', rawPrompt, content, model.id, JSON.stringify(userParams), baseUrl, actualModel
-            ).run();
-          } catch {}
-          return jsonResponse({ optimized_prompt: content, enhanced: content, techniques_applied: techniques, providerUsed: baseUrl, modelUsed: p.model, actualModel, ctx });
+          const history_id = await histInsertEnhancement(env, {
+            source_app: 'muapi', kind: isOptimize ? 'optimized' : 'enhanced',
+            raw_prompt: rawPrompt, enhanced: content, target_provider: 'muapi',
+            target_model: model.id, params: userParams, llm_provider: baseUrl, llm_model: actualModel,
+          });
+          return jsonResponse({ optimized_prompt: content, enhanced: content, techniques_applied: techniques, providerUsed: baseUrl, modelUsed: p.model, actualModel, history_id, ctx });
         } catch (e) {
           noteFail(p.model, baseUrl, e.message);
           continue;
@@ -670,11 +780,12 @@ async function handleApiRoute(request, env, path) {
                 if (done) {
                   // Persist after stream (best-effort)
                   if (fullEnhanced) {
-                    try {
-                      await DB.prepare('INSERT INTO prompts (kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
-                        'enhanced', rawPrompt, fullEnhanced, model.id, JSON.stringify(userParams), baseUrl, actualModel
-                      ).run();
-                    } catch {}
+                    const hid = await histInsertEnhancement(env, {
+                      source_app: 'muapi', kind: 'enhanced',
+                      raw_prompt: rawPrompt, enhanced: fullEnhanced, target_provider: 'muapi',
+                      target_model: model.id, params: userParams, llm_provider: baseUrl, llm_model: actualModel,
+                    });
+                    if (hid) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ history_id: hid })}\n\n`));
                   }
                 controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                 controller.close();
@@ -710,11 +821,18 @@ async function handleApiRoute(request, env, path) {
     return jsonResponse({ error: 'All LLM providers failed', message: String(lastErr || 'unknown'), providersTried: tried, modelId: model.id }, 502);
   }
 
-  // ─── GET /api/prompts ───
+  // ─── GET /api/prompts ─── (shared history first, legacy table as fallback)
   if (path === '/api/prompts' && request.method === 'GET') {
     const url = new URL(request.url);
     const kind = url.searchParams.get('kind') || 'enhanced';
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+    const H = histDB(env);
+    if (H) {
+      try {
+        const { results } = await H.prepare('SELECT id, kind, raw_prompt AS prompt, enhanced_prompt AS enhanced, target_model AS model_id, params_json, llm_provider, llm_model, created_at FROM enhancements WHERE kind = ? ORDER BY created_at DESC LIMIT ?').bind(kind, limit).all();
+        if (results && results.length) return jsonResponse({ prompts: results, total: results.length, source: 'history' });
+      } catch {}
+    }
     try {
       const { results } = await DB.prepare('SELECT id, kind, prompt, enhanced, model_id, params_json, llm_provider, llm_model, created_at FROM prompts WHERE kind = ? ORDER BY created_at DESC LIMIT ?').bind(kind, limit).all();
       return jsonResponse({ prompts: results || [], total: results ? results.length : 0 });
@@ -722,6 +840,118 @@ async function handleApiRoute(request, env, path) {
       // Table may not exist before migration 0003 is applied
       return jsonResponse({ prompts: [], total: 0 });
     }
+  }
+
+  // ─── POST /api/muapi/save-outputs — pull output URLs into R2 ───
+  // MuAPI CDN URLs expire. The browser POSTs output URLs here right after a
+  // run succeeds; the Worker fetches each URL server-side and streams it to R2,
+  // then links the R2 keys back to the run row via jobId.
+  if (path === '/api/muapi/save-outputs' && request.method === 'POST') {
+    if (!env.OUTPUTS_BUCKET) return jsonResponse({ error: 'R2 not configured on Worker', configured: false }, 500);
+    let body; try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
+    const urls = Array.isArray(body.urls)
+      ? body.urls.filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)).slice(0, 10)
+      : [];
+    if (!urls.length) return jsonResponse({ error: 'urls[] required (max 10)' }, 400);
+    const model = String(body.model || 'output').split('/').pop().replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 60) || 'output';
+    const job = String(body.jobId || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 64);
+    const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+    const day = `${d.getUTCFullYear()}${p2(d.getUTCMonth() + 1)}${p2(d.getUTCDate())}`;
+    const stamp = `${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}`;
+    const CT_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'audio/mpeg': 'mp3', 'audio/wav': 'wav' };
+    const saved = [], errors = [];
+    for (let i = 0; i < urls.length; i++) {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 120000);
+      try {
+        const up = await fetch(urls[i], { signal: ctrl.signal });
+        if (!up.ok || !up.body) throw new Error('fetch HTTP ' + up.status);
+        const len = Number(up.headers.get('content-length') || 0);
+        if (len > 250 * 1024 * 1024) throw new Error('file too large (>250MB), download manually');
+        const ct = (up.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+        let ext = CT_EXT[ct];
+        if (!ext) {
+          const m = urls[i].split('?')[0].match(/\.([a-z0-9]{2,5})$/i);
+          ext = (m && /^(mp4|webm|mov|jpg|jpeg|png|webp|gif|mp3|wav)$/i.test(m[1])) ? m[1].toLowerCase() : 'bin';
+        }
+        const key = `muapi/${day}/${model}-${stamp}${job ? '-' + job.slice(0, 8) : ''}-${i}.${ext}`;
+        await env.OUTPUTS_BUCKET.put(key, up.body, { httpMetadata: { contentType: ct } });
+        clearTimeout(to);
+        const head = await env.OUTPUTS_BUCKET.head(key);
+        saved.push({ key, size: head ? head.size : null, contentType: ct });
+      } catch (e) {
+        clearTimeout(to);
+        errors.push({ url: urls[i], error: String((e && e.message) || e).slice(0, 200) });
+      }
+    }
+    if (job) {
+      bg(ctx, histUpdateRun(env, 'muapi', job, {
+        status: errors.length && !saved.length ? 'save_failed' : 'succeeded',
+        output_urls: urls,
+        r2_keys: saved.map((s) => s.key),
+      }));
+    }
+    return jsonResponse({ saved, errors });
+  }
+  // ─── GET /api/muapi/file?key= — serve a saved output back from R2 ───
+  if (path === '/api/muapi/file' && request.method === 'GET') {
+    if (!env.OUTPUTS_BUCKET) return jsonResponse({ error: 'R2 not configured on Worker' }, 500);
+    const url = new URL(request.url);
+    const key = (url.searchParams.get('key') || '').replace(/^\/+/, '');
+    if (!key || !key.startsWith('muapi/')) return jsonResponse({ error: 'key must be under muapi/' }, 400);
+    const obj = await env.OUTPUTS_BUCKET.get(key);
+    if (!obj) return jsonResponse({ error: 'not found' }, 404);
+    return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' } });
+  }
+
+  // ─── /api/history/* — shared genai-history API ───
+  if (path === '/api/history/link' && request.method === 'POST') {
+    let b; try { b = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
+    const H = histDB(env);
+    if (!H) return jsonResponse({ error: 'HISTORY not configured' }, 500);
+    const enh = parseInt(b.enhancement_id, 10);
+    if (!b.provider || !b.external_job_id || !enh) return jsonResponse({ error: 'provider, external_job_id, enhancement_id required' }, 400);
+    try {
+      await H.prepare('UPDATE runs SET enhancement_id = ?, updated_at = datetime("now") WHERE provider = ? AND external_job_id = ?').bind(enh, String(b.provider), String(b.external_job_id)).run();
+      return jsonResponse({ ok: true });
+    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+  }
+  if (path === '/api/history/rate' && request.method === 'POST') {
+    let b; try { b = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400); }
+    const H = histDB(env);
+    if (!H) return jsonResponse({ error: 'HISTORY not configured' }, 500);
+    const id = parseInt(b.id, 10) || null, rating = parseInt(b.rating, 10);
+    if (!(rating >= 1 && rating <= 5)) return jsonResponse({ error: 'rating (1-5) required' }, 400);
+    let where, vals;
+    if (id) { where = 'id = ?'; vals = [rating, id]; }
+    else if (b.provider && b.external_job_id) { where = 'provider = ? AND external_job_id = ?'; vals = [rating, String(b.provider), String(b.external_job_id)]; }
+    else return jsonResponse({ error: 'id or (provider + external_job_id) required' }, 400);
+    try {
+      await H.prepare(`UPDATE runs SET rating = ?, updated_at = datetime('now') WHERE ${where}`).bind(...vals).run();
+      return jsonResponse({ ok: true });
+    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+  }
+  if (path === '/api/history/runs' && request.method === 'GET') {
+    const H = histDB(env);
+    if (!H) return jsonResponse({ error: 'HISTORY not configured' }, 500);
+    const q = new URL(request.url);
+    const limit = Math.min(parseInt(q.searchParams.get('limit') || '50', 10) || 50, 200);
+    const conds = [], vals = [];
+    for (const [k, col] of [['provider', 'provider'], ['model', 'model'], ['source_app', 'source_app'], ['status', 'status']]) {
+      const v = q.searchParams.get(k);
+      if (v) { conds.push(`${col} = ?`); vals.push(v); }
+    }
+    if (q.searchParams.get('model_like')) { conds.push('model LIKE ?'); vals.push(`%${q.searchParams.get('model_like')}%`); }
+    if (q.searchParams.get('rated')) { conds.push('rating IS NOT NULL'); }
+    const minRating = parseInt(q.searchParams.get('min_rating') || '', 10);
+    if (minRating >= 1 && minRating <= 5) { conds.push('rating >= ?'); vals.push(minRating); }
+    const order = q.searchParams.get('order') === 'top' ? 'ORDER BY rating IS NULL, rating DESC, created_at DESC' : 'ORDER BY created_at DESC';
+    try {
+      const { results } = await H.prepare(
+        `SELECT id, source_app, provider, model, enhancement_id, external_job_id, status, substr(input_json, 1, 2000) AS input_preview, loras_json, output_urls_json, r2_keys_json, rating, cost_hint, created_at, updated_at FROM runs${conds.length ? ' WHERE ' + conds.join(' AND ') : ''} ${order} LIMIT ?`
+      ).bind(...vals, limit).all();
+      return jsonResponse({ runs: results || [], total: results ? results.length : 0 });
+    } catch (e) { return jsonResponse({ error: e.message }, 500); }
   }
 
   // ─── GET /api/health ───
@@ -732,10 +962,15 @@ async function handleApiRoute(request, env, path) {
       const row = await DB.prepare("SELECT value FROM catalog_meta WHERE key='last_sync'").first();
       syncedAt = row ? row.value : null;
     } catch { /* ignore */ }
+    let hRuns=0, hEnh=0; try{ const H=histDB(env); if(H){ const a=await H.prepare('SELECT COUNT(*) AS c FROM runs').first(); hRuns=a?.c||0; const b=await H.prepare('SELECT COUNT(*) AS c FROM enhancements').first(); hEnh=b?.c||0; } }catch{}
     return jsonResponse({
       status: 'ok',
       models: modelCount?.count || 0,
       hasApiKey: !!MUAPI_API_KEY,
+      hasHistory: !!histDB(env),
+      history_runs: hRuns,
+      history_enhancements: hEnh,
+      hasR2: !!env.OUTPUTS_BUCKET,
       timestamp: new Date().toISOString(),
       synced_at: syncedAt,
     });
