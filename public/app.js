@@ -298,7 +298,7 @@ function isLoraParam(name, spec) {
   return false;
 }
 function loraHintText() {
-  return 'LoRA: full <b>https://….safetensors</b> file URL (trainer output, HF resolve link, or Civitai download). Multi-LoRA fields: one per line (commas also work).';
+  return 'LoRA, best first: <b>civitai:MODEL@VERSION</b> (most reliable on MuAPI) · HuggingFace <b>owner/repo</b> (some endpoints) · full <b>https://….safetensors</b> URL (trainer output, HF resolve link, Civitai download). Multi-LoRA fields: one per line (commas also work).';
 }
 function sizeHintText() {
   return 'Format: <b>width*height</b> (e.g. 1024*1024). Limits vary by model — width/height fields show their own min/max where the schema defines them.';
@@ -317,14 +317,15 @@ function paramHint(name, spec) {
 function loraTokenIssues(tok) {
   const t = String(tok || '').trim();
   if (!t) return null;
+  if (/^civitai:\d+(@\d+)?$/i.test(t)) return null; // MuAPI-preferred shorthand
   if (/^https?:\/\//i.test(t)) {
     if (/civitai\.com/i.test(t)) return null; // model-page links resolve provider-side
     if (!/\.safetensors(\?|#|$)/i.test(t)) return 'URL should point to a .safetensors file';
     return null;
   }
-  if (/^huggingface\.co\//i.test(t) || /^civitai\.com\//i.test(t)) return 'MuAPI needs the full https:// file URL — add the scheme or use the resolve/download link';
-  if (/^[^/\s]+\/[^/\s]+$/.test(t)) return 'MuAPI needs the full https:// file URL, not a short ref';
-  return 'MuAPI needs the full https://….safetensors file URL';
+  if (/^huggingface\.co\//i.test(t) || /^civitai\.com\//i.test(t)) return 'MuAPI prefers civitai:MODEL@VERSION or the full file URL — add the https:// scheme';
+  if (/^[^/\s]+\/[^/\s]+$/.test(t)) return 'Short refs work on some endpoints only — civitai:MODEL@VERSION or the full URL is safer';
+  return 'MuAPI prefers civitai:MODEL@VERSION or a full https://….safetensors URL';
 }
 function validateLoraInput(input) {
   try {
