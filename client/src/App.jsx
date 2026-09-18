@@ -210,7 +210,7 @@ export default function App() {
           </Section>
 
           <button id="genBtn" type="button" onClick={() => { gen.submit({ modelId: selectedId, prompt, params, enhancementId }); setEnhancementId(null); }}
-            disabled={!canGenerate} className="generate-btn">
+            disabled={!canGenerate} className="generate-btn sticky bottom-3 z-20 shadow-2xl lg:static">
             {gen.busy ? (<span><span className="spinner mr-2"></span>Generating…</span>) : (<span><i className="fas fa-play mr-2"></i>Generate</span>)}
           </button>
 
