@@ -401,6 +401,15 @@ async function handleApiRoute(request, env, path, ctx) {
     const repo = url.searchParams.get('repo');
     const file = url.searchParams.get('file') || 'pytorch_lora_weights.safetensors';
     if (!repo) return jsonResponse({ error: 'repo query param required, e.g. ?repo=D33pStateTech/d33pstateten&file=pytorch_lora_weights.safetensors' }, 400);
+    // Allowlist: only our own repos are served. This path is public (Access
+    // Bypass) so MuAPI's servers can download LoRA weights; without the
+    // allowlist anyone could proxy arbitrary HF files on our bandwidth/token.
+    if (!/^D33pStateTech\/[A-Za-z0-9._-]+$/.test(repo)) {
+      return jsonResponse({ error: 'repo not allowlisted' }, 403);
+    }
+    if (/[/\\]/.test(file) || file.includes('..')) {
+      return jsonResponse({ error: 'invalid file param' }, 400);
+    }
     const hfUrl = `https://huggingface.co/${repo}/resolve/main/${file}`;
     const headers = {};
     const hfToken = env.HUGGINGFACE_API_KEY || '';
