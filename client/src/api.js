@@ -82,11 +82,11 @@ export async function uploadFileBlob(file) {
   return data;
 }
 
-export async function saveOutputs({ model, jobId, outputs }) {
+export async function saveOutputs({ urls, model, jobId }) {
   const res = await fetch(`${API}/api/muapi/save-outputs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, jobId, outputs }),
+    body: JSON.stringify({ urls, model, jobId }),
   });
   return json(res);
 }

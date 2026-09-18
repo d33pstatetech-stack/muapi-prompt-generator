@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchHealth, fetchModel, fetchModels, syncCatalog } from './api';
+import HistoryGrid from './components/HistoryGrid';
 import ModelPicker from './components/ModelPicker';
+import OutputCard from './components/OutputCard';
 import ParamForm from './components/ParamForm';
+import PromptBox from './components/PromptBox';
 import Section from './components/Section';
+import useGeneration from './hooks/useGeneration';
 
 function useToast() {
   const [toasts, setToasts] = useState([]);
@@ -24,7 +28,37 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [schema, setSchema] = useState(null);
   const [params, setParams] = useState({});
+  const [prompt, setPrompt] = useState('');
+  const [history, setHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('muapi_history') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [loadingSchema, setLoadingSchema] = useState(false);
+
+  const handleDone = useCallback((r) => {
+    setHistory((h) => {
+      const next = [{
+        requestId: r.requestId,
+        url: r.outputs[0],
+        cost: r.cost?.amount_usd,
+        elapsed: r.elapsed,
+        model: selectedId,
+        time: new Date().toLocaleTimeString(),
+      }, ...h].slice(0, 30);
+      try {
+        localStorage.setItem('muapi_history', JSON.stringify(next));
+      } catch {
+        /* storage full/blocked */
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  const gen = useGeneration({ notify: toast, onDone: handleDone });
 
   useEffect(() => {
     (async () => {
@@ -73,7 +107,29 @@ export default function App() {
     }
   }, [toast]);
 
+  const savePrompt = useCallback(() => {
+    const p = prompt.trim();
+    if (!p) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem('muapi_saved') || '[]');
+      saved.unshift({ prompt: p, model: selectedId, params: { ...params }, time: new Date().toISOString() });
+      localStorage.setItem('muapi_saved', JSON.stringify(saved.slice(0, 50)));
+      toast('Prompt saved', 'success');
+    } catch {
+      toast('Save failed', 'error');
+    }
+  }, [prompt, selectedId, params, toast]);
+
+  const payloadPreview = (() => {
+    const pl = { prompt, ...params };
+    for (const [k, v] of Object.entries(pl)) {
+      if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) delete pl[k];
+    }
+    return JSON.stringify(pl, null, 2);
+  })();
+
   const selected = models.find((m) => m.id === selectedId);
+  const canGenerate = selectedId && prompt.trim() && !gen.busy;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -114,10 +170,59 @@ export default function App() {
 
         <div className="space-y-4">
           <Section icon="fa-pen" title="Prompt" step={2} defaultOpen={true}>
-            <p className="text-xs text-gray-600">Prompt box, generate button, cost estimate, status, and output land next.</p>
+            <PromptBox value={prompt} onChange={setPrompt} onSave={savePrompt}
+              onEnhance={() => document.getElementById('enhancer')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+              disabled={gen.busy} />
           </Section>
+
+          <button id="genBtn" type="button" onClick={() => gen.submit({ modelId: selectedId, prompt, params, enhancementId: window.lastEnhancementId || null })}
+            disabled={!canGenerate} className="generate-btn">
+            {gen.busy ? (<span><span className="spinner mr-2"></span>Generating…</span>) : (<span><i className="fas fa-play mr-2"></i>Generate</span>)}
+          </button>
+
+          {selected && selected.cost > 0 && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 px-1">
+              <span>Estimated cost:</span>
+              <span className="font-mono text-violet-300">~${selected.cost}</span>
+            </div>
+          )}
+
+          {gen.status && (
+            <div className="panel">
+              <div className="flex items-center gap-3">
+                {gen.status.spinner && <span className="spinner !border-gray-600"></span>}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">{gen.status.text}</div>
+                  {gen.status.detail && <div className="text-xs text-gray-500 mt-0.5 break-words">{gen.status.detail}</div>}
+                </div>
+              </div>
+              {gen.progress != null && (
+                <div className="h-1.5 rounded-full bg-gray-800 mt-3 overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all" style={{ width: `${gen.progress}%` }}></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {gen.result && (
+            <div className="panel">
+              <OutputCard result={gen.result} modelId={selectedId} notify={toast} />
+            </div>
+          )}
+
+          <Section icon="fa-code" title="API Payload" defaultOpen={false}>
+            <div className="flex justify-end mb-1.5">
+              <button type="button" title="Copy JSON" aria-label="Copy JSON"
+                onClick={() => navigator.clipboard?.writeText(payloadPreview).then(() => toast('Payload copied', 'success')).catch(() => toast('Copy failed', 'error'))}
+                className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 hover:text-white">
+                <i className="fas fa-copy text-xs"></i>
+              </button>
+            </div>
+            <pre className="text-[11px] font-mono text-gray-400 bg-black/40 rounded-lg p-3 overflow-auto max-h-64 whitespace-pre-wrap break-all">{payloadPreview}</pre>
+          </Section>
+
           <Section icon="fa-history" title="Recent" defaultOpen={false}>
-            <p className="text-xs text-gray-600">No generations yet.</p>
+            <HistoryGrid items={history} />
           </Section>
         </div>
 
@@ -133,7 +238,7 @@ export default function App() {
             )}
           </Section>
           <Section icon="fa-wand-magic-sparkles" title="AI Prompt Enhancer" defaultOpen={false}>
-            <p className="text-xs text-gray-600">Streaming enhancer lands with the next pass.</p>
+            <div id="enhancer"><p className="text-xs text-gray-600">Streaming enhancer lands with the next pass.</p></div>
           </Section>
         </div>
       </main>
