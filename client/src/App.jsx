@@ -89,7 +89,8 @@ export default function App() {
     setLoadingSchema(true);
     try {
       const data = await fetchModel(id);
-      const sch = data.schema || data.params || data;
+      // Worker returns { model, paramSchema: { params, defaults } }
+      const sch = data.paramSchema || data.schema || data.params || data;
       setSchema(sch);
       setParams({ ...(sch.defaults || {}) });
     } catch (e) {
