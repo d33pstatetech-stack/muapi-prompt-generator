@@ -1,4 +1,5 @@
 import { NSFW_LORAS, USER_LORAS } from '../loras-data';
+import { loraSlotCount } from '../params';
 
 const FAM_ORDER = { 'FLUX.1': 0, 'Qwen-Image': 1, Krea: 2, 'Wan 2.1': 3, 'Wan 2.2': 4, 'Wan (other)': 5, 'Other / unstamped': 6 };
 
@@ -77,10 +78,20 @@ export default function LoraPicker({ variant, schema, modelId, params, onParams,
     if (spec?.type === 'array') {
       const direct = [l.repo_url, l.file_url].find((u) => u && /\.safetensors(\?|#|$)/i.test(u)) || l.repo_url;
       const cur = Array.isArray(params[field]) ? [...params[field]] : [];
-      const emptyIdx = cur.findIndex((s) => !(s?.path || s || '').toString().trim());
+      const same = (s) => String(s?.path ?? s ?? '').trim() === direct;
+      if (cur.some(same)) {
+        notify && notify('That LoRA is already in the slots', 'info');
+        return;
+      }
+      const cap = loraSlotCount(spec);
+      const emptyIdx = cur.findIndex((s) => !String(s?.path ?? s ?? '').trim());
       const entry = { path: direct, scale: 1.0 };
       if (emptyIdx >= 0) cur[emptyIdx] = entry;
-      else cur.push(entry);
+      else if (cur.length < cap) cur.push(entry);
+      else {
+        notify && notify(`All ${cap} slots are full — clear one first`, 'error');
+        return;
+      }
       onParams({ [field]: cur });
       notify && notify(`Filled ${field} slot with LoRA (strength adjustable)`, 'success');
     } else {
