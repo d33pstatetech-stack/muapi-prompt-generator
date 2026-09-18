@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react';
 import { uploadFileBlob } from '../api';
+import CloudPicker from './CloudPicker';
 
-// Image / image-array param: drag-drop + browse + URL paste.
+// Image / image-array param: upload + R2 file + URL paste.
 // Props: name, multi, value (string|string[]), onChange, notify(msg, kind).
 export default function ImageParam({ name, multi, value, onChange, notify }) {
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
   const [drag, setDrag] = useState(false);
+  const [r2open, setR2open] = useState(false);
   const fileRef = useRef(null);
 
   const list = multi ? (Array.isArray(value) ? value : value ? [value] : []) : value ? [value] : [];
@@ -75,6 +77,9 @@ export default function ImageParam({ name, multi, value, onChange, notify }) {
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => put(e.target.files?.[0])} />
       </div>
       <div className="flex gap-1.5">
+        <button type="button" onClick={() => setR2open(true)} title="Pick a file from R2 storage" className="btn-secondary flex-none !text-xs">
+          <i className="fas fa-cloud mr-1"></i>R2
+        </button>
         <input
           type="url"
           value={url}
@@ -86,6 +91,8 @@ export default function ImageParam({ name, multi, value, onChange, notify }) {
         />
         <button type="button" onClick={addUrl} className="btn-primary-sm flex-none">{multi ? 'Add' : 'Use URL'}</button>
       </div>
+      <CloudPicker open={r2open} onClose={() => setR2open(false)} notify={notify}
+        onPick={(resolved) => onChange(multi ? [...list, resolved].slice(0, 9) : resolved)} />
     </div>
   );
 }
