@@ -60,8 +60,11 @@ export async function submitGenerate({ modelId, params, enhancementId }) {
 export async function pollPrediction(requestId) {
   const res = await fetch(`${API}/api/predictions/${requestId}`);
   const data = await json(res);
-  if (!res.ok) throw new Error(errText(data.error || data.message, `Poll failed (${res.status})`));
-  return data; // { status, outputs?, error? }
+  // NOTE: MuAPI reports failures as non-2xx with the real status nested
+  // under `detail` (e.g. 400 {detail:{status:'failed',…}}). Never throw here —
+  // callers normalize `status`/`error` and must surface failures, not spin.
+  if (data && typeof data === 'object') data._http = res.status;
+  return data; // { status, outputs?, error?, detail? }
 }
 
 export async function estimateCost({ modelId, params }) {

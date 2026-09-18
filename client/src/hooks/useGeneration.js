@@ -48,22 +48,24 @@ export default function useGeneration({ notify, onDone }) {
             setStatus({ text: 'Still running', detail: `No result after 15m — job may be queued server-side. ID: ${data.requestId}. Browser stopped polling.`, spinner: false });
             return;
           }
-          if (d.status === 'completed') {
+          if (d.status === 'completed' || d.detail?.status === 'completed') {
             stop();
-            const r = { requestId: data.requestId, outputs: d.outputs || [], cost: data.cost, elapsed };
+            const outputs = d.outputs || d.output_urls || [];
+            const r = { requestId: data.requestId, outputs, cost: data.cost, elapsed };
             setResult(r);
             setPhase('done');
             setStatus({ text: 'Completed', detail: `Done in ${elapsed}s`, spinner: false });
             setProgress(null);
             onDoneRef.current && onDoneRef.current(r);
-          } else if (d.status === 'failed') {
+          } else if (d.status === 'failed' || d.detail?.status === 'failed' || d.detail?.status === 'error') {
             stop();
+            const msg = d.error || d.detail?.error || d.message || d.detail?.message || 'Generation failed';
             setPhase('error');
-            setStatus({ text: 'Failed', detail: `${d.error || 'Generation failed'} [id: ${data.requestId}]`, spinner: false });
+            setStatus({ text: 'Failed', detail: `${typeof msg === 'string' ? msg : JSON.stringify(msg)} [id: ${data.requestId}]`, spinner: false });
           } else {
             const pct = d.status === 'processing' ? 60 : d.status === 'queued' ? 20 : 40;
             setProgress(pct);
-            setStatus({ text: statusText(d.status), detail: `${elapsed}s elapsed`, spinner: true });
+            setStatus({ text: statusText(d.status) || statusText(d.detail?.status) || 'Working', detail: `${elapsed}s elapsed`, spinner: true });
           }
         } catch {
           /* keep polling */
