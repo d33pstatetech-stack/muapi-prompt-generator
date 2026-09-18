@@ -148,44 +148,84 @@ export async function saveLlmConfig(config) {
   }).catch(() => {});
 }
 
-export async function streamEnhance({ input, model, context, signal, onToken, onMeta }) {
-  const res = await fetch(`${API}/api/enhance`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input, model, context }),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    const data = await json(res).catch(() => ({}));
-    throw new Error(errText(data.error || data.message, `Enhance failed (${res.status})`));
-  }
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  let out = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      const t = line.trim();
-      if (!t.startsWith('data:')) continue;
-      const payload = t.slice(5).trim();
-      if (payload === '[DONE]') continue;
+// Streaming enhance — real protocol: POST {rawPrompt, modelId, params} →
+// SSE OpenAI-style chunks (choices[0].delta.content) + {history_id} event,
+// X-Provider-Used / X-Model-Used headers, JSON fallback {enhanced,…}.
+export async function streamEnhance({ rawPrompt, modelId, params, signal, onToken, onMeta }) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 50000);
+  const onAbort = () => ctrl.abort();
+  signal && signal.addEventListener('abort', onAbort);
+  try {
+    const res = await fetch(`${API}/api/enhance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rawPrompt, modelId, params }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      let msg = 'Enhance failed';
       try {
-        const ev = JSON.parse(payload);
-        if (ev.token) {
-          out += ev.token;
-          onToken && onToken(out);
-        } else if (ev.enhancement_id || ev.model || ev.error) {
-          onMeta && onMeta(ev);
-        }
+        const j = await res.json();
+        msg = j.message || j.error || msg;
+        if (j.providersTried?.length) msg += ` [tried: ${j.providersTried.join(' | ')}]`;
       } catch {
-        /* partial chunk */
+        try {
+          msg = await res.text();
+        } catch {
+          /* keep default */
+        }
       }
+      throw new Error(msg);
     }
+    const ct = res.headers.get('content-type') || '';
+    let full = '';
+    let providerUsed = res.headers.get('X-Provider-Used') || '?';
+    let modelUsed = res.headers.get('X-Model-Used') || '?';
+    let historyId = null;
+    if (ct.includes('text/event-stream') && res.body) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const d = line.slice(5).trim();
+          if (d === '[DONE]' || !d) continue;
+          try {
+            const j = JSON.parse(d);
+            if (j.history_id) {
+              historyId = j.history_id;
+              continue;
+            }
+            const delta = j.choices?.[0]?.delta?.content || '';
+            if (delta) {
+              full += delta;
+              onToken && onToken(full);
+            }
+          } catch {
+            /* partial chunk */
+          }
+        }
+      }
+    } else {
+      const data = await res.json();
+      full = data.enhanced || '';
+      if (data.history_id) historyId = data.history_id;
+      providerUsed = data.providerUsed || providerUsed;
+      modelUsed = data.modelUsed || modelUsed;
+    }
+    if (!full) throw new Error('Empty LLM response');
+    onMeta && onMeta({ providerUsed, modelUsed, historyId, length: full.length });
+    return { text: full, providerUsed, modelUsed, historyId };
+  } finally {
+    clearTimeout(timer);
+    signal && signal.removeEventListener('abort', onAbort);
   }
-  return out;
 }

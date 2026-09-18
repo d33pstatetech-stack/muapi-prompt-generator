@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchHealth, fetchModel, fetchModels, syncCatalog } from './api';
+import Enhancer from './components/Enhancer';
 import HistoryGrid from './components/HistoryGrid';
+import LibraryModal from './components/LibraryModal';
 import ModelPicker from './components/ModelPicker';
 import OutputCard from './components/OutputCard';
 import ParamForm from './components/ParamForm';
 import PromptBox from './components/PromptBox';
 import Section from './components/Section';
+import SettingsModal from './components/SettingsModal';
 import useGeneration from './hooks/useGeneration';
 
 function useToast() {
@@ -37,6 +40,9 @@ export default function App() {
     }
   });
   const [loadingSchema, setLoadingSchema] = useState(false);
+  const [enhancementId, setEnhancementId] = useState(null);
+  const [library, setLibrary] = useState(null); // null | 'templates' | 'saved'
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleDone = useCallback((r) => {
     setHistory((h) => {
@@ -120,6 +126,15 @@ export default function App() {
     }
   }, [prompt, selectedId, params, toast]);
 
+  const applyLibraryItem = useCallback(async ({ prompt: p, model, params: ps }) => {
+    if (p) setPrompt(p);
+    if (model && model !== selectedId) {
+      await handleSelect(model);
+    }
+    if (ps) setParams((prev) => ({ ...prev, ...ps }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, handleSelect]);
+
   const payloadPreview = (() => {
     const pl = { prompt, ...params };
     for (const [k, v] of Object.entries(pl)) {
@@ -147,8 +162,17 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-none">
-            <button onClick={handleSync} title="Update catalog" className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 hover:text-white" disabled={syncing}>
+            <button onClick={handleSync} title="Update catalog" aria-label="Update catalog" className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 hover:text-white" disabled={syncing}>
               <i className={`fas fa-sync-alt text-xs ${syncing ? 'fa-spin' : ''}`}></i>
+            </button>
+            <button onClick={() => setLibrary('saved')} title="Saved prompts" aria-label="Saved prompts" className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 hover:text-white">
+              <i className="fas fa-bookmark text-xs"></i>
+            </button>
+            <button onClick={() => setLibrary('templates')} title="Templates" aria-label="Templates" className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 hover:text-white">
+              <i className="fas fa-layer-group text-xs"></i>
+            </button>
+            <button onClick={() => setSettingsOpen(true)} title="LLM settings" aria-label="LLM settings" className="w-8 h-8 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 hover:text-white">
+              <i className="fas fa-cog text-xs"></i>
             </button>
             <span title={connected ? 'Connected' : 'Disconnected'} className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-gray-600'}`}></span>
           </div>
@@ -175,7 +199,7 @@ export default function App() {
               disabled={gen.busy} />
           </Section>
 
-          <button id="genBtn" type="button" onClick={() => gen.submit({ modelId: selectedId, prompt, params, enhancementId: window.lastEnhancementId || null })}
+          <button id="genBtn" type="button" onClick={() => { gen.submit({ modelId: selectedId, prompt, params, enhancementId }); setEnhancementId(null); }}
             disabled={!canGenerate} className="generate-btn">
             {gen.busy ? (<span><span className="spinner mr-2"></span>Generating…</span>) : (<span><i className="fas fa-play mr-2"></i>Generate</span>)}
           </button>
@@ -238,7 +262,9 @@ export default function App() {
             )}
           </Section>
           <Section icon="fa-wand-magic-sparkles" title="AI Prompt Enhancer" defaultOpen={false}>
-            <div id="enhancer"><p className="text-xs text-gray-600">Streaming enhancer lands with the next pass.</p></div>
+            <div id="enhancer">
+              <Enhancer model={selected} params={params} onUse={setPrompt} notify={toast} onEnhancement={setEnhancementId} />
+            </div>
           </Section>
         </div>
       </main>
@@ -250,6 +276,9 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      <LibraryModal open={library != null} tab={library || 'templates'} onTab={setLibrary} onApply={applyLibraryItem} onClose={() => setLibrary(null)} notify={toast} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} notify={toast} />
     </div>
   );
 }
