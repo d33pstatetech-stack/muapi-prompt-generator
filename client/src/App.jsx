@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchHealth, fetchModel, fetchModels, syncCatalog } from './api';
 import ModelPicker from './components/ModelPicker';
+import ParamForm from './components/ParamForm';
 import Section from './components/Section';
 
 function useToast() {
@@ -22,6 +23,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [schema, setSchema] = useState(null);
+  const [params, setParams] = useState({});
   const [loadingSchema, setLoadingSchema] = useState(false);
 
   useEffect(() => {
@@ -42,10 +44,13 @@ export default function App() {
   const handleSelect = useCallback(async (id) => {
     setSelectedId(id);
     setSchema(null);
+    setParams({});
     setLoadingSchema(true);
     try {
       const data = await fetchModel(id);
-      setSchema(data.schema || data.params || data);
+      const sch = data.schema || data.params || data;
+      setSchema(sch);
+      setParams({ ...(sch.defaults || {}) });
     } catch (e) {
       toast(`Failed to load model: ${e.message}`, 'error');
     } finally {
@@ -100,9 +105,10 @@ export default function App() {
             <ModelPicker models={models} value={selectedId} onSelect={handleSelect} />
             {loadingSchema && <p className="text-xs text-gray-500 mt-2">Loading parameters…</p>}
           </Section>
-          <Section icon="fa-sliders-h" title="Parameters" step={3} defaultOpen={false}>
-            <p className="text-xs text-gray-600">Select a model to configure parameters. (Param renderer lands next.)</p>
-            {schema && <pre className="text-[10px] text-gray-600 mt-2 max-h-40 overflow-auto">{JSON.stringify(Object.keys(schema?.properties || schema || {}), null, 1)}</pre>}
+          <Section icon="fa-sliders-h" title="Parameters" step={3} defaultOpen={!!selectedId} summary={selectedId && !schema ? 'loading…' : undefined}>
+            {loadingSchema && <p className="text-xs text-gray-500">Loading parameters…</p>}
+            {!loadingSchema && !schema && <p className="text-xs text-gray-600">Select a model to configure parameters.</p>}
+            {!loadingSchema && schema && <ParamForm schema={schema} values={params} onChange={setParams} notify={toast} />}
           </Section>
         </div>
 
