@@ -934,7 +934,16 @@ async function handleApiRoute(request, env, path, ctx) {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 120000);
       try {
-        const up = await fetch(urls[i], { signal: ctrl.signal });
+        // Browser-like headers: cdn.muapi.ai (CloudFront) 403s the Worker's
+        // default fetch signature as a bot. This mirrors a normal browser.
+        const up = await fetch(urls[i], {
+          signal: ctrl.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            Accept: 'image/avif,image/webp,image/apng,image/*,video/*,audio/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        });
         if (!up.ok || !up.body) throw new Error('fetch HTTP ' + up.status);
         const len = Number(up.headers.get('content-length') || 0);
         if (len > 250 * 1024 * 1024) throw new Error('file too large (>250MB), download manually');
