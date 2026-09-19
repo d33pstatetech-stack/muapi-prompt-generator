@@ -3,3 +3,6 @@ node_modules/
 .dev.vars
 .env
 .cache/
+# React redesign build output (branch-only source lives in client/src)
+client/dist/
+client/node_modules/
