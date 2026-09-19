@@ -450,12 +450,22 @@ async function handleApiRoute(request, env, path, ctx) {
       if (hfToken && JSON.stringify(apiBody).includes('huggingface.co/D33pStateTech/d33pstateten')) {
         const bodyStr = JSON.stringify(apiBody);
         const origin = new URL(request.url).origin;
+        // BRANCH-ONLY (feature/muapi-react): preview versions upload under
+        // ephemeral <hash>-muapi-prompt-generator… hostnames that MuAPI's
+        // servers cannot reliably fetch (and Access-gated). Point the HF
+        // proxy rewrite at the production host, where /api/hf/file carries
+        // an Access Bypass. Production behavior is unchanged: on the
+        // production host proxyBase === origin. Safe to merge to main.
+        const PROD_ORIGIN = 'https://muapi-prompt-generator.d33pstatetech.workers.dev';
+        const proxyBase = /-muapi-prompt-generator\.d33pstatetech\.workers\.dev$/.test(new URL(origin).hostname)
+          ? PROD_ORIGIN
+          : origin;
         const proxied = bodyStr.replace(/https:\/\/huggingface\.co\/D33pStateTech\/d33pstateten[^"]*/g, (m)=>{
           let file = 'pytorch_lora_weights.safetensors';
           const mm = m.match(/\/resolve\/main\/([^"?]+)/);
           if(mm) file = mm[1];
-          return `${origin}/api/hf/file?repo=D33pStateTech/d33pstateten&file=${encodeURIComponent(file)}`;
-        }).replace(/huggingface\.co\/D33pStateTech\/d33pstateten(?!\/resolve)/g, origin + '/api/hf/file?repo=D33pStateTech/d33pstateten&file=pytorch_lora_weights.safetensors');
+          return `${proxyBase}/api/hf/file?repo=D33pStateTech/d33pstateten&file=${encodeURIComponent(file)}`;
+        }).replace(/huggingface\.co\/D33pStateTech\/d33pstateten(?!\/resolve)/g, proxyBase + '/api/hf/file?repo=D33pStateTech/d33pstateten&file=pytorch_lora_weights.safetensors');
         apiBody = JSON.parse(proxied);
       }
     } catch(e){ console.error('HF rewrite failed', e); }
