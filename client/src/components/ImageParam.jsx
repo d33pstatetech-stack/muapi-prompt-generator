@@ -3,12 +3,37 @@ import { uploadFileBlob } from '../api';
 import CloudPicker from './CloudPicker';
 
 // Image / image-array param: upload + R2 file + URL paste.
+// Aspect-ratio badge overlaid on each thumb ("W:H" + WxH tooltip).
 // Props: name, multi, value (string|string[]), onChange, notify(msg, kind).
+function ratioGcd(a, b) {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b) {
+    const t = a % b;
+    a = b;
+    b = t;
+  }
+  return a || 1;
+}
+
+function ratioStr(w, h) {
+  if (!w || !h) return '';
+  const g = ratioGcd(w, h);
+  const a = w / g;
+  const b = h / g;
+  if (a > 32 || b > 32) {
+    const r = w / h;
+    return r >= 1 ? `${r.toFixed(2)}:1` : `1:${(1 / r).toFixed(2)}`;
+  }
+  return `${a}:${b}`;
+}
+
 export default function ImageParam({ name, multi, value, onChange, notify }) {
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState('');
   const [drag, setDrag] = useState(false);
   const [r2open, setR2open] = useState(false);
+  const [ratios, setRatios] = useState({});
   const fileRef = useRef(null);
 
   const list = multi ? (Array.isArray(value) ? value : value ? [value] : []) : value ? [value] : [];
@@ -49,8 +74,23 @@ export default function ImageParam({ name, multi, value, onChange, notify }) {
       {list.length > 0 && (
         <div className={`grid gap-2 ${multi ? 'grid-cols-3' : 'grid-cols-1'}`}>
           {list.map((u, i) => (
-            <div key={i} className="relative rounded-lg overflow-hidden border border-gray-700 bg-gray-900">
-              <img src={u} alt="" className={`w-full object-cover ${multi ? 'h-16' : 'max-h-48'}`} />
+            <div key={`${u}-${i}`} className="relative rounded-lg overflow-hidden border border-gray-700 bg-gray-900">
+              <img
+                src={u}
+                alt=""
+                onLoad={(e) => {
+                  const img = e.currentTarget;
+                  if (!img.naturalWidth || !img.naturalHeight) return;
+                  setRatios((r) => ({ ...r, [i]: { label: ratioStr(img.naturalWidth, img.naturalHeight), dims: `${img.naturalWidth}×${img.naturalHeight}px` } }));
+                }}
+                className={`w-full object-cover ${multi ? 'h-16' : 'max-h-48'}`}
+              />
+              {ratios[i] && (
+                <span title={ratios[i].dims}
+                  className="absolute left-1.5 bottom-1.5 z-[2] bg-black/70 text-purple-200 text-[10px] font-semibold font-mono px-[7px] py-[2px] rounded-full border border-purple-500/50 pointer-events-none whitespace-nowrap">
+                  {ratios[i].label}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => removeAt(i)}
