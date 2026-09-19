@@ -414,13 +414,22 @@ async function handleApiRoute(request, env, path, ctx) {
     const headers = {};
     const hfToken = env.HUGGINGFACE_API_KEY || '';
     if (hfToken) headers['Authorization'] = `Bearer ${hfToken}`;
+    // Forward Range so downloaders (incl. MuAPI's LoRA fetcher) get proper
+    // 206 partial content instead of a full-body 200 that can stall them.
+    const range = request.headers.get('range');
+    if (range) headers['Range'] = range;
     const hfRes = await fetch(hfUrl, { headers });
-    if (!hfRes.ok) {
+    if (!hfRes.ok && hfRes.status !== 206) {
       const txt = await hfRes.text().catch(()=>'');
       return jsonResponse({ error: `Failed to fetch ${hfUrl}: ${hfRes.status}`, details: txt.slice(0,500) }, hfRes.status);
     }
     const ct = hfRes.headers.get('Content-Type') || 'application/octet-stream';
-    return new Response(hfRes.body, { headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' } });
+    const outHeaders = { 'Content-Type': ct, 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*', 'Accept-Ranges': 'bytes' };
+    for (const h of ['content-range', 'content-length']) {
+      const v = hfRes.headers.get(h);
+      if (v) outHeaders[h === 'content-range' ? 'Content-Range' : 'Content-Length'] = v;
+    }
+    return new Response(hfRes.body, { status: hfRes.status, headers: outHeaders });
   }
 
   // ─── POST /api/generate ───
