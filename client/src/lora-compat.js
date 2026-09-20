@@ -33,7 +33,7 @@ export function modelFamily(model) {
 
 export function modelIsVideo(model) {
   if (!model) return false;
-  return /video/i.test([model.group_of, model.category].filter(Boolean).join(' '));
+  return /video/i.test([model.group_of, model.group, model.category].filter(Boolean).join(' '));
 }
 
 export function filterLoras(list, model, modelId) {
@@ -68,12 +68,24 @@ export function compatibility(lora, model, modelId) {
     return 'verified';
   }
   // Curated exact target always trusted (ranked likely until a run verifies it).
-  if (modelId && lora.muapi_model && lora.muapi_model === modelId) return 'likely';
+  // All provider keys are checked — id schemes never collide across providers.
+  if (modelId && ['muapi_model', 'replicate_model', 'wavespeed_model'].some((k) => lora[k] && lora[k] === modelId)) return 'likely';
   const fam = modelFamily(model);
-  if (fam && loraFamily(lora) !== fam) return 'no';
+  if (fam && !familyOk(lora, fam, modelString(model))) return 'no';
   if ((lora.pipeline === 'video-generation') !== modelIsVideo(model)) return 'no';
   if (versionGap(lora.base_model, modelString(model)) === 'major') return 'no';
   return 'likely';
+}
+
+// Same family, or Wan cross-minor drift (2.1 LoRA on 2.2 and vice versa).
+// Major gaps (2.x vs 3.x) stay incompatible.
+function familyOk(lora, fam, modelStr) {
+  const lf = loraFamily(lora);
+  if (lf === fam) return true;
+  if (/^Wan /.test(lf) && /^Wan /.test(fam || '')) {
+    return versionGap(lora.base_model, modelStr) !== 'major';
+  }
+  return false;
 }
 
 function modelString(model) {
