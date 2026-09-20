@@ -46,11 +46,17 @@ export default function LoraPicker({ variant, schema, model, modelId, params, on
     [variant],
   );
   const filt = useMemo(() => filterLoras(base, model, modelId), [base, model, modelId]);
-  const loras = showAll ? base : filt.shown;
+  const loras = showAll ? [...filt.shown, ...filt.hiddenItems] : filt.shown;
   const filtered = !showAll && filt.hidden > 0;
   const badge = variant === 'nsfw' ? `${loras.length}/${base.length} • NSFW` : `${loras.length}/${base.length} • HF`;
   const badgeCls = variant === 'nsfw' ? 'bg-red-700' : 'bg-purple-600';
   const loraField = findLoraField(schema);
+
+  const TIER_DOT = {
+    verified: ['bg-emerald-500', 'Verified — this LoRA completed a run on the selected model'],
+    likely: ['bg-amber-400', 'Likely compatible — same family/pipeline, not yet run on this model'],
+    no: ['bg-red-500', 'Incompatible with the selected model (visible via Show all)'],
+  };
 
   const copy = async (t, label) => {
     try {
@@ -108,10 +114,17 @@ export default function LoraPicker({ variant, schema, model, modelId, params, on
         <span className={`text-[10px] text-white px-2 py-0.5 rounded-full ${badgeCls}`}>{badge}</span>
         {modelId && filt.family && (
           <span className="text-[10px] text-gray-500 truncate" title={`Showing LoRAs compatible with ${modelId}`}>
-            {filt.exact > 0 ? `${filt.exact} exact match${filt.exact > 1 ? 'es' : ''} · ` : ''}{filt.family}{modelIsVideo(model) ? ' · video' : ''}
+            {filt.exact > 0 ? `${filt.exact} verified · ` : ''}{filt.family}{modelIsVideo(model) ? ' · video' : ''}
           </span>
         )}
       </div>
+      {modelId && (
+        <p className="mt-1 text-[9px] text-gray-600">
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1 align-middle"></span>verified
+          <span className="inline-block w-2 h-2 rounded-full bg-amber-400 ml-2 mr-1 align-middle"></span>likely
+          {showAll && <><span className="inline-block w-2 h-2 rounded-full bg-red-500 ml-2 mr-1 align-middle"></span>incompatible</>}
+        </p>
+      )}
       {modelId && !loraField && (
         <p className="mt-1.5 text-[10px] text-amber-300/90">This model exposes no LoRA parameter — Fill buttons copy URLs only.</p>
       )}
@@ -128,7 +141,10 @@ export default function LoraPicker({ variant, schema, model, modelId, params, on
         </label>
       )}
       <div className="space-y-2 mt-2.5 max-h-96 overflow-y-auto pr-0.5">
-        {loras.map((l) => {
+        {loras.map((item) => {
+          const l = item.lora;
+          const tier = item.tier;
+          const [dotCls, dotTip] = TIER_DOT[tier] || TIER_DOT.likely;
           const g = variant === 'nsfw' ? groupLabel(l) : null;
           const head = g && g !== lastGroup ? ((lastGroup = g), true) : false;
           const trigs = triggers(l);
@@ -137,7 +153,8 @@ export default function LoraPicker({ variant, schema, model, modelId, params, on
           return (
             <div key={l.id}>
               {head && <div className="text-[11px] font-bold text-gray-300 mt-2 mb-1 px-1">{g}</div>}
-              <div className="p-2 rounded-lg bg-gray-800/50 border border-gray-700" title={`${l.name} — ${l.base_model}`}>
+              <div className="relative p-2 rounded-lg bg-gray-800/50 border border-gray-700" title={`${l.name} — ${l.base_model}`}>
+                <span title={dotTip} className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${dotCls} ring-2 ring-gray-900 cursor-help`}></span>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 min-w-0">

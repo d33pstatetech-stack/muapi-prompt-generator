@@ -1,5 +1,4 @@
-export const USER_LORAS = [
-    {
+export const USER_LORAS = [    {
       id: "D33pStateTech/aznten-flux.1-dev-replicate",
       name: "aznten-flux.1-dev-replicate",
       base_model: "black-forest-labs/FLUX.1-dev",
@@ -281,3 +280,10 @@ export const NSFW_LORAS = [
       note: "20 downloads. Stamped Wan 2.1 I2V 720P. Fills lora_list as {path, scale}. 307 MB."
     }
   ];
+
+// Run-verified LoRA ↔ model pairs (MuAPI). Green-light source of truth:
+// only pairs below render green. Add a row every time a combo completes.
+export const VERIFIED_LORA_RUNS = [
+  { lora: "D33pStateTech/d33pstateten", model: "krea-v2-turbo-lora", job: "840e36f8-d765-4966-8e9b-6f8dc4808053", when: "2026-09-20" },
+  { lora: "D33pStateTech/aznten-Qwen-Image-2512-Lora-WaveSpeed-AI", model: "qwen-image-text-to-image-2512-lora", job: "4984353a-0796-4af1-84f9-00451b6f086c", when: "2026-09-19" },
+];

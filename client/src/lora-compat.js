@@ -1,10 +1,11 @@
 // LoRA ↔ model compatibility — single source of truth for intelligent filtering.
-// A LoRA is compatible with the selected model when:
-//   1. exact: the LoRA's curated `muapi_model` equals the selected model id, or
-//   2. family: the LoRA's base-model family matches the model's family, AND
-//      the pipeline matches (video LoRAs only for video models and vice versa).
-// Unknown models (no family signal) show everything; the picker offers a
-// "show all" escape hatch so curated exact matches are never hidden by a bad guess.
+// Tiers:
+//   verified (green): the exact LoRA+model pair completed a real run (VERIFIED_LORA_RUNS).
+//   likely (yellow): suspected compatible — curated exact target, same family +
+//     pipeline, tolerating minor version drift (wan 2.1 vs 2.2).
+//   no (red): incompatible — family mismatch, pipeline mismatch, or a major
+//     version gap (wan 2.x vs 3.x). Hidden unless the picker’s show-all is on.
+import { VERIFIED_LORA_RUNS } from './loras-data.js';
 
 export function loraFamily(l) {
   const b = String(l?.base_model || '');
@@ -37,19 +38,65 @@ export function modelIsVideo(model) {
 
 export function filterLoras(list, model, modelId) {
   const src = Array.isArray(list) ? list : [];
-  if (!model && !modelId) return { shown: [...src], hidden: 0, family: null, exact: 0 };
-  const fam = modelFamily(model);
-  const wantVideo = modelIsVideo(model);
-  const exact = [];
-  const familial = [];
-  for (const l of src) {
-    if (modelId && l.muapi_model === modelId) {
-      exact.push(l);
-      continue;
-    }
-    if (fam && loraFamily(l) !== fam) continue;
-    if ((l.pipeline === 'video-generation') !== wantVideo) continue;
-    familial.push(l);
+  if (!model && !modelId) {
+    return {
+      shown: src.map((lora) => ({ lora, tier: 'likely' })),
+      hidden: 0, hiddenItems: [], family: null, exact: 0,
+    };
   }
-  return { shown: [...exact, ...familial], hidden: src.length - exact.length - familial.length, family: fam, exact: exact.length };
+  const shown = [];
+  const hiddenItems = [];
+  let exact = 0;
+  for (const lora of src) {
+    const tier = compatibility(lora, model, modelId);
+    if (tier === 'verified') exact += 1;
+    (tier === 'no' ? hiddenItems : shown).push({ lora, tier });
+  }
+  // Verified first, then likely — stable within tiers.
+  shown.sort((a, b) => (a.tier === b.tier ? 0 : a.tier === 'verified' ? -1 : 1));
+  return {
+    shown, hidden: hiddenItems.length, hiddenItems,
+    family: modelFamily(model), exact,
+  };
+}
+
+// Tier for one LoRA against the selected model.
+export function compatibility(lora, model, modelId) {
+  if (!lora) return 'no';
+  const lid = String(lora.id || '');
+  if (modelId && (VERIFIED_LORA_RUNS || []).some((v) => v.lora === lid && v.model === modelId)) {
+    return 'verified';
+  }
+  // Curated exact target always trusted (ranked likely until a run verifies it).
+  if (modelId && lora.muapi_model && lora.muapi_model === modelId) return 'likely';
+  const fam = modelFamily(model);
+  if (fam && loraFamily(lora) !== fam) return 'no';
+  if ((lora.pipeline === 'video-generation') !== modelIsVideo(model)) return 'no';
+  if (versionGap(lora.base_model, modelString(model)) === 'major') return 'no';
+  return 'likely';
+}
+
+function modelString(model) {
+  if (!model) return '';
+  return [model.id, model.family, model.endpoint, model.name].filter(Boolean).join(' ');
+}
+
+// Parse "wan 2.1" / "qwen-image-2512" style versions: { base, major, minor }.
+function parseVer(s) {
+  let m = /wan[-\s_]?(\d+)(?:\.(\d+))?/i.exec(s || '');
+  if (m) return { base: 'wan', major: +m[1], minor: m[2] == null ? null : +m[2] };
+  m = /qwen[-\s_]?image(?:[-\s_]?[a-z]+)?[-\s_]?(\d+)(?:\.(\d+))?/i.exec(s || '');
+  if (m) return { base: 'qwen-image', major: +m[1], minor: m[2] == null ? null : +m[2] };
+  return null;
+}
+
+// 'same' | 'minor' | 'major' | 'unknown'. Small-integer majors (wan 2 vs 3)
+// are a real arch break; large date-like versions (2511 vs 2512) are drift.
+export function versionGap(loraBase, modelStr) {
+  const a = parseVer(loraBase);
+  const b = parseVer(modelStr);
+  if (!a || !b || a.base !== b.base) return 'unknown';
+  if (a.major !== b.major) return (a.major < 100 && b.major < 100) ? 'major' : 'minor';
+  if ((a.minor ?? 0) !== (b.minor ?? 0)) return 'minor';
+  return 'same';
 }
