@@ -116,7 +116,8 @@ export async function rateJob({ externalJobId, rating }) {
 }
 
 export async function cloudList({ prefix = '', flat = false, cursor = null } = {}) {
-  const q = new URLSearchParams({ prefix, ...(flat ? { flat: '1' } : {}), ...(cursor ? { cursor } : {}) });
+  // Worker reads `recursive=1` (flat) vs `delimiter=/` (folder view); `flat=1` was silently ignored.
+  const q = new URLSearchParams({ prefix, ...(flat ? { recursive: '1' } : { delimiter: '/' }), ...(cursor ? { cursor } : {}) });
   const res = await fetch(`${API}/api/cloud/list?${q}`);
   const data = await json(res);
   if (!res.ok) throw new Error(errText(data.error || data.message, `R2 list failed (${res.status})`));
