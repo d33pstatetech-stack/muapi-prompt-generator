@@ -1,18 +1,9 @@
+import { useMemo, useState } from 'react';
 import { NSFW_LORAS, USER_LORAS } from '../loras-data';
+import { filterLoras, loraFamily, modelIsVideo } from '../lora-compat';
 import { loraSlotCount } from '../params';
 
 const FAM_ORDER = { 'FLUX.1': 0, 'Qwen-Image': 1, Krea: 2, 'Wan 2.1': 3, 'Wan 2.2': 4, 'Wan (other)': 5, 'Other / unstamped': 6 };
-
-function loraFamily(l) {
-  const b = String(l.base_model || '');
-  if (/flux/i.test(b)) return 'FLUX.1';
-  if (/qwen/i.test(b)) return 'Qwen-Image';
-  if (/krea/i.test(b)) return 'Krea';
-  if (/wan[-\s]?2\.1/i.test(b)) return 'Wan 2.1';
-  if (/wan[-\s]?2\.2/i.test(b)) return 'Wan 2.2';
-  if (/wan/i.test(b)) return 'Wan (other)';
-  return 'Other / unstamped';
-}
 
 function groupLabel(l) {
   return (l.pipeline === 'video-generation' ? '🎬 Video — ' : '🖼 Image — ') + loraFamily(l);
@@ -47,11 +38,19 @@ function findLoraField(schema) {
 }
 
 // LoRA quick picker. variant: 'user' | 'nsfw'.
-// Props: schema, modelId, params, onParams(mergeObj), notify.
-export default function LoraPicker({ variant, schema, modelId, params, onParams, notify }) {
-  const loras = variant === 'nsfw' ? [...NSFW_LORAS].sort(nsfwSort) : USER_LORAS;
-  const badge = variant === 'nsfw' ? `${NSFW_LORAS.length} • NSFW` : `${USER_LORAS.length} • HF`;
+// Props: schema, model (record), modelId, params, onParams(mergeObj), notify.
+export default function LoraPicker({ variant, schema, model, modelId, params, onParams, notify }) {
+  const [showAll, setShowAll] = useState(false);
+  const base = useMemo(
+    () => (variant === 'nsfw' ? [...NSFW_LORAS].sort(nsfwSort) : [...USER_LORAS]),
+    [variant],
+  );
+  const filt = useMemo(() => filterLoras(base, model, modelId), [base, model, modelId]);
+  const loras = showAll ? base : filt.shown;
+  const filtered = !showAll && filt.hidden > 0;
+  const badge = variant === 'nsfw' ? `${loras.length}/${base.length} • NSFW` : `${loras.length}/${base.length} • HF`;
   const badgeCls = variant === 'nsfw' ? 'bg-red-700' : 'bg-purple-600';
+  const loraField = findLoraField(schema);
 
   const copy = async (t, label) => {
     try {
@@ -105,9 +104,29 @@ export default function LoraPicker({ variant, schema, modelId, params, onParams,
   let lastGroup = null;
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className={`text-[10px] text-white px-2 py-0.5 rounded-full ${badgeCls}`}>{badge}</span>
+        {modelId && filt.family && (
+          <span className="text-[10px] text-gray-500 truncate" title={`Showing LoRAs compatible with ${modelId}`}>
+            {filt.exact > 0 ? `${filt.exact} exact match${filt.exact > 1 ? 'es' : ''} · ` : ''}{filt.family}{modelIsVideo(model) ? ' · video' : ''}
+          </span>
+        )}
       </div>
+      {modelId && !loraField && (
+        <p className="mt-1.5 text-[10px] text-amber-300/90">This model exposes no LoRA parameter — Fill buttons copy URLs only.</p>
+      )}
+      {filtered && (
+        <label className="mt-1.5 flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer">
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="accent-purple-500" />
+          Show all {base.length} ({filt.hidden} hidden by compatibility filter)
+        </label>
+      )}
+      {showAll && filt.hidden > 0 && (
+        <label className="mt-1.5 flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer">
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="accent-purple-500" />
+          Showing all — uncheck to re-apply filter
+        </label>
+      )}
       <div className="space-y-2 mt-2.5 max-h-96 overflow-y-auto pr-0.5">
         {loras.map((l) => {
           const g = variant === 'nsfw' ? groupLabel(l) : null;
