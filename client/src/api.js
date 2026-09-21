@@ -189,6 +189,42 @@ export async function deleteCustomLora(id) {
   return data;
 }
 
+// Jev structured-judgment pilot: verifier gate for enhancements (log-only).
+export const APP_NAME = 'muapi';
+
+export async function judgeEnhancement({ rawPrompt, enhanced, modelId }) {
+  const res = await fetch(`${API}/api/judge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      state: { raw: rawPrompt, enhanced, model: modelId },
+      questions: {
+        preserves_intent: {
+          type: 'noul',
+          instructions: 'Does the enhanced prompt keep the same subject and scene as the original raw prompt, only adding detail?',
+        },
+      },
+    }),
+  });
+  const data = await json(res);
+  if (!res.ok || !data.ok) return { ok: false, error: errText(data.error, `Judge failed (${res.status})`) };
+  return data;
+}
+
+// Fire-and-forget calibration logging; never throws.
+export async function logVerdict({ app, model, question, probability, elapsed_ms }) {
+  try {
+    await fetch(`${API}/api/judge/log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app, model, question, probability, elapsed_ms }),
+    });
+  } catch {
+    /* calibration is best-effort */
+  }
+  return null;
+}
+
 // Streaming enhance — real protocol: POST {rawPrompt, modelId, params} →
 // SSE OpenAI-style chunks (choices[0].delta.content) + {history_id} event,
 // X-Provider-Used / X-Model-Used headers, JSON fallback {enhanced,…}.
