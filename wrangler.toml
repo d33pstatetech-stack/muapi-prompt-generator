@@ -26,13 +26,24 @@ bucket_name = "genai-assets"
 [vars]
 MUAPI_BASE_URL = "https://api.muapi.ai/api/v1"
 # Repos the /api/hf/file proxy may serve, as comma-separated owner/repo or
-# owner/* entries. The endpoint is reachable without a session so that upstream
-# fetchers can pull PRIVATE weights with this account's HF token, which is also
-# why it must not be an open proxy. Public adapters are unaffected either way:
-# their URLs are never rewritten, and the provider fetches them from the Hub
-# anonymously.
-# The wildcard covers this owner's own repos, including any added later.
-HF_PROXY_REPO_ALLOWLIST = "D33pStateTech/*"
+# owner/* entries. EMPTY BY DEFAULT, and that is the correct setting unless you
+# have a PRIVATE LoRA that the provider cannot fetch on its own.
+#
+# With this empty no rewriting happens at all: a HuggingFace URL entered in a
+# LoRA field is passed through to MuAPI exactly as typed, and MuAPI fetches it
+# from the Hub. That is the right path for every PUBLIC adapter - including
+# public repos you own - and it needs nothing from this Worker.
+#
+# Only set this when a repo is genuinely private or gated, so the provider's
+# own fetchers get a 403 and this Worker has to fetch it with the HF token
+# instead. Two prerequisites, both easy to miss:
+#   1. An Access BYPASS must cover /api/hf/file. If an Access application
+#      covers the whole hostname without a bypass, the provider receives a login
+#      page instead of the weights and the job hangs at "starting" forever.
+#   2. The URL must contain /resolve/main/<file>. The bare owner/repo form
+#      carries no filename, so it is deliberately NOT rewritten - the worker
+#      cannot know which weight file to ask for.
+HF_PROXY_REPO_ALLOWLIST = ""
 # Canonical origin to advertise when rewriting HuggingFace URLs to the proxy.
 # Leave empty to use the incoming request origin. Set this when preview
 # deployments get ephemeral hostnames that upstream fetchers cannot reach.
