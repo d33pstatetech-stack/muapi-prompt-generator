@@ -3,17 +3,20 @@ main = "src/worker.js"
 compatibility_date = "2025-01-01"
 
 [assets]
-# BRANCH-ONLY (feature/muapi-react): serve the Vite build. main keeps "public".
+# Built React client (client/dist), served from the edge cache.
+# Rebuild with `npm --prefix client run build` before deploying.
 directory = "client/dist"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "muapi-models"
+# Environment-specific. Replace with the id from `wrangler d1 create` on a fork.
 database_id = "bf6aa067-463a-45ba-91b3-d240dec91385"
 
 [[d1_databases]]
 binding = "HISTORY"
 database_name = "genai-history"
+# Environment-specific. Replace with the id from `wrangler d1 create` on a fork.
 database_id = "6a271502-ea90-411b-935c-50a16d5d5300"
 
 [[r2_buckets]]
@@ -22,3 +25,13 @@ bucket_name = "genai-assets"
 
 [vars]
 MUAPI_BASE_URL = "https://api.muapi.ai/api/v1"
+# Repos the /api/hf/file proxy may serve, as comma-separated owner/repo or
+# owner/* entries. Empty denies everything, which is the safe default: the
+# endpoint is reachable without a session so that upstream fetchers can pull
+# private weights, and an open proxy would spend this account's HF token and
+# bandwidth on arbitrary files. Add an entry only for a repo you own.
+HF_PROXY_REPO_ALLOWLIST = ""
+# Canonical origin to advertise when rewriting HuggingFace URLs to the proxy.
+# Leave empty to use the incoming request origin. Set this when preview
+# deployments get ephemeral hostnames that upstream fetchers cannot reach.
+HF_PROXY_BASE_URL = ""

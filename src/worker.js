@@ -9,8 +9,8 @@
  *   POST /api/estimate         → estimate cost without generating
  *   GET  /api/categories       → list distinct categories
  *   GET  /api/families         → list distinct families
- *   GET  /api/sync             → re-fetch catalog from MuAPI and update D1 (admin)
- *   *                          → static assets (public/)
+ *   POST /api/sync             → re-fetch catalog from MuAPI and update D1 (admin)
+ *   *                          → static assets, served by the [assets] binding
  */
 
 const MUAPI_BASE = 'https://api.muapi.ai/api/v1';
@@ -32,7 +32,7 @@ const MODEL_PRESETS = {
 };
 const ENHANCER_TEMPLATE = `refine the following [Media Generation Type] prompt, specifically to optimize it for [Model]. This should include determining the optimal prompt length, or at least the ideal minimum and maximum word counts, determining whether the model excels with keyword based prompts or full narrative descriptions, what types of prompts work best (describe everything vs just describe movement, etc), whether it accepts timestamp direction (at 00:05, do this, at 00:10 do that, etc) and if it does add these timestamp directions based on the total length of the video (as input by the user) and estimating the time it would take for the described actions in the scene to take place, determine if a certain camera lens or videography style works well if called out for the specific model, translate any vague camera movement directions into videographer jargon (dolly out, orbital, chase cam, etc).  The video will be generated at [resolution] and [aspect ratio] (only include this if it would benefit the prompt for this model.  \nif [Model] includes audio generation, insert appropriate sound effect cues and format any dialogue into the most AI friendly format.`;
 
-// Keep in sync with public/app grouping + scripts/parse-openapi-seed.js
+// Keep in sync with the category grouping in client/src and scripts/parse-openapi-seed.js
 const TAG_TO_CATEGORY = {
   'Image: Text-to-Image': 'Text to Image',
   'Image: Edit & Reference': 'Image to Image',
@@ -400,12 +400,16 @@ async function handleApiRoute(request, env, path, ctx) {
     const url = new URL(request.url);
     const repo = url.searchParams.get('repo');
     const file = url.searchParams.get('file') || 'pytorch_lora_weights.safetensors';
-    if (!repo) return jsonResponse({ error: 'repo query param required, e.g. ?repo=D33pStateTech/d33pstateten&file=pytorch_lora_weights.safetensors' }, 400);
-    // Allowlist: only our own repos are served. This path is public (Access
-    // Bypass) so MuAPI's servers can download LoRA weights; without the
-    // allowlist anyone could proxy arbitrary HF files on our bandwidth/token.
-    if (!/^D33pStateTech\/[A-Za-z0-9._-]+$/.test(repo)) {
-      return jsonResponse({ error: 'repo not allowlisted' }, 403);
+    if (!repo) return jsonResponse({ error: 'repo query param required, e.g. ?repo=owner/repo&file=pytorch_lora_weights.safetensors' }, 400);
+    if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repo)) {
+      return jsonResponse({ error: 'repo must be in owner/repo form' }, 400);
+    }
+    // Allowlist: this path is public (Access Bypass) so that MuAPI's own servers
+    // can download LoRA weights without HF credentials. Serving arbitrary repos
+    // would let anyone proxy any HF file on this account's token and bandwidth,
+    // so only repos named in HF_PROXY_REPO_ALLOWLIST are served. Unset means deny.
+    if (!hfRepoAllowed(env, repo)) {
+      return jsonResponse({ error: 'repo not allowlisted', hint: 'add it to the HF_PROXY_REPO_ALLOWLIST var (comma-separated owner/repo or owner/*)' }, 403);
     }
     if (/[/\\]/.test(file) || file.includes('..')) {
       return jsonResponse({ error: 'invalid file param' }, 400);
@@ -453,29 +457,35 @@ async function handleApiRoute(request, env, path, ctx) {
 
     // Build request body from user params — per-model typed coercion
     let apiBody = await buildApiBody(modelId, userParams || {}, env);
-    // Auto-rewrite private HF LoRA URLs to proxied Worker URLs so MuAPI/Replicate can fetch without HF auth
+    // Auto-rewrite HuggingFace URLs to proxied Worker URLs so MuAPI's servers
+    // can fetch them without HF auth. Only repos on the allowlist qualify;
+    // everything else is passed through untouched.
     try {
-      const hfToken = env.HUGGINGFACE_API_KEY || '';
-      if (hfToken && JSON.stringify(apiBody).includes('huggingface.co/D33pStateTech/d33pstateten')) {
+      const allow = hfProxyAllowlist(env);
+      if (env.HUGGINGFACE_API_KEY && allow.length) {
         const bodyStr = JSON.stringify(apiBody);
-        const origin = new URL(request.url).origin;
-        // BRANCH-ONLY (feature/muapi-react): preview versions upload under
-        // ephemeral <hash>-muapi-prompt-generator… hostnames that MuAPI's
-        // servers cannot reliably fetch (and Access-gated). Point the HF
-        // proxy rewrite at the production host, where /api/hf/file carries
-        // an Access Bypass. Production behavior is unchanged: on the
-        // production host proxyBase === origin. Safe to merge to main.
-        const PROD_ORIGIN = 'https://muapi-prompt-generator.d33pstatetech.workers.dev';
-        const proxyBase = /-muapi-prompt-generator\.d33pstatetech\.workers\.dev$/.test(new URL(origin).hostname)
-          ? PROD_ORIGIN
-          : origin;
-        const proxied = bodyStr.replace(/https:\/\/huggingface\.co\/D33pStateTech\/d33pstateten[^"]*/g, (m)=>{
-          let file = 'pytorch_lora_weights.safetensors';
-          const mm = m.match(/\/resolve\/main\/([^"?]+)/);
-          if(mm) file = mm[1];
-          return `${proxyBase}/api/hf/file?repo=D33pStateTech/d33pstateten&file=${encodeURIComponent(file)}`;
-        }).replace(/huggingface\.co\/D33pStateTech\/d33pstateten(?!\/resolve)/g, proxyBase + '/api/hf/file?repo=D33pStateTech/d33pstateten&file=pytorch_lora_weights.safetensors');
-        apiBody = JSON.parse(proxied);
+        if (/huggingface\.co\//.test(bodyStr)) {
+          // Preview deployments get ephemeral <hash>-<worker>.workers.dev
+          // hostnames that upstream fetchers cannot always reach, and which may
+          // sit behind Access. HF_PROXY_BASE_URL pins a canonical host; when it
+          // is unset the request's own origin is used.
+          const origin = new URL(request.url).origin;
+          const proxyBase = (env.HF_PROXY_BASE_URL || origin).replace(/\/$/, '');
+          const proxied = bodyStr.replace(
+            /https?:\/\/huggingface\.co\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)(\/resolve\/[^"?]+)?/g,
+            (m, repo, tail) => {
+              if (!hfRepoAllowedIn(allow, repo)) return m;
+              const file = (tail || '').replace(/^\/resolve\/[^/]+\//, '') || 'pytorch_lora_weights.safetensors';
+              return `${proxyBase}/api/hf/file?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
+            },
+          ).replace(
+            /(?<!https:\/\/)huggingface\.co\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)(?!\/resolve)/g,
+            (m, repo) => (hfRepoAllowedIn(allow, repo)
+              ? `${proxyBase}/api/hf/file?repo=${encodeURIComponent(repo)}&file=pytorch_lora_weights.safetensors`
+              : m),
+          );
+          if (proxied !== bodyStr) apiBody = JSON.parse(proxied);
+        }
       }
     } catch(e){ console.error('HF rewrite failed', e); }
 
@@ -841,7 +851,7 @@ async function handleApiRoute(request, env, path, ctx) {
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://muapi-prompt-generator.d33pstatetech.workers.dev',
+            'HTTP-Referer': env.HF_PROXY_BASE_URL || new URL(request.url).origin,
             'X-Title': 'MuAPI Prompt Generator',
           },
           body: JSON.stringify({
@@ -1616,8 +1626,29 @@ function customLoraToEntry(row) {
   };
 }
 
-function jsonResponse(data, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(data), {
+// Repos the /api/hf/file proxy is permitted to serve. Configured as a
+// comma-separated list of exact `owner/repo` entries or `owner/*` wildcards.
+// Empty (the default) denies everything.
+function hfProxyAllowlist(env) {
+  return String(env.HF_PROXY_REPO_ALLOWLIST || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^[A-Za-z0-9._-]+\/([A-Za-z0-9._-]+|\*)$/.test(s));
+}
+
+function hfRepoAllowedIn(allow, repo) {
+  if (!allow || !allow.length) return false;
+  return allow.some((entry) => {
+    if (entry.endsWith('/*')) return repo.startsWith(entry.slice(0, -1));
+    return entry === repo;
+  });
+}
+
+function hfRepoAllowed(env, repo) {
+  return hfRepoAllowedIn(hfProxyAllowlist(env), repo);
+}
+
+function jsonResponse(data, status = 200, extraHeaders = {}) {  return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json',

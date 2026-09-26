@@ -24,6 +24,7 @@ The catalog currently holds **723 models across 14 categories and 131 model fami
 - [Prompt enhancer](#prompt-enhancer)
 - [LoRA library and compatibility filtering](#lora-library-and-compatibility-filtering)
 - [Jev verifier pilot](#jev-verifier-pilot)
+- [Content scope](#content-scope)
 - [Companion local and Docker build](#companion-local-and-docker-build)
 - [License](#license)
 
@@ -52,6 +53,7 @@ The catalog currently holds **723 models across 14 categories and 131 model fami
 
 **LoRA support**
 - Browse Hugging Face and CivitAI, or resolve either from a pasted model-card URL
+- Curated seed list of public community adapters, plus a separate bucket of uncensored adapters (see [Content scope](#content-scope))
 - Custom LoRA library persisted in D1, deduplicated by source + repo + file
 - Three-tier compatibility filtering against the selected model, described below
 - `Range` header forwarding and `206` passthrough so chunked weight downloads do not stall
@@ -74,8 +76,10 @@ client/           → React 19 + Vite + Tailwind 4 single-page app
   dist/           → build output, served as Worker static assets (git-ignored)
 src/worker.js     → the Worker: every /api/* route, auth gate, proxying
 migrations/       → 0001 catalog schema, 0002 generated seed, 0003 enhancer tables
-scripts/          → parse-openapi-seed.js (catalog generator), venice-test.js (LLM smoke test)
-public/           → legacy vanilla-JS front end, retained for reference
+scripts/          → parse-openapi-seed.js (catalog generator), venice-test.js
+                    (LLM smoke test), sync-legacy-loras.mjs (regenerate public/loras.js)
+public/           → legacy vanilla-JS front end for the static Docker preview
+                    (see Dockerfile); superseded by client/ for the deployed app
 ```
 
 The Worker only ever handles `/api/*`. Static file serving is delegated to Cloudflare's asset pipeline via the `[assets]` binding in `wrangler.toml`, so front-end assets are served from the edge cache and never invoke Worker code.
@@ -190,7 +194,7 @@ The gate covers every route that spends a key, touches history, or can modify st
 | GET | `/api/predictions/:id` | Poll a job for status and outputs |
 | POST | `/api/estimate` | Cost estimate without generating |
 | POST | `/api/upload` | Upload a reference file → hosted URL |
-| GET | `/api/hf/file` | Proxy a Hugging Face file, forwarding `Range` and `206` |
+| GET | `/api/hf/file` | Proxy a Hugging Face file for allowlisted repos, forwarding `Range` and `206` |
 | POST | `/api/enhance` | Stream an enhanced prompt (SSE) |
 | POST | `/api/optimize` | Same as `/api/enhance`, buffered to JSON |
 | GET/PUT | `/api/llm-config` | Read (redacted) or write the enhancer's LLM chain |
@@ -220,9 +224,23 @@ All generation is submit-then-poll. LoRA downloads forward `Range` and pass `206
 | `MUAPI_BASE_URL` | no | Override the API base (`[vars]`, defaults to `https://api.muapi.ai/api/v1`) |
 | `OPENROUTER_API_KEY` | for enhancer | Default LLM provider |
 | `VENICE_API_KEY` | optional | Alternative LLM provider in the fallback chain |
-| `HUGGINGFACE_API_KEY` | optional | Raises Hugging Face rate limits for `/api/hf/file` |
+| `HUGGINGFACE_API_KEY` | for the LoRA proxy | Raises Hugging Face rate limits and lets `/api/hf/file` read private repos |
 | `CIVITAI_API_KEY` | optional | Authenticated CivitAI model lookups |
 | `JEV_API_KEY` | for verifier | Jev `/api/judge` proxy |
+
+Two plain vars control the private-LoRA proxy, both defaulting to a safe state:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `HF_PROXY_REPO_ALLOWLIST` | `""` (deny all) | Comma-separated `owner/repo` or `owner/*` entries the proxy may serve |
+| `HF_PROXY_BASE_URL` | `""` (request origin) | Canonical origin advertised when rewriting Hugging Face URLs to the proxy |
+
+`/api/hf/file` is reachable without a session, because an upstream fetcher needs
+to pull private weights without holding Hugging Face credentials. That makes an
+open proxy a real risk, so the allowlist is empty by default and only exact
+entries or owner wildcards are honoured. `HF_PROXY_BASE_URL` exists for preview
+deployments, which get ephemeral hostnames that upstream fetchers cannot
+reliably reach.
 
 Secrets are set with `wrangler secret put` and injected per request. For local development they live in `.dev.vars`, copied from `.dev.vars.example`. `.dev.vars` and `.env` are git-ignored; never commit a populated copy.
 
@@ -325,10 +343,12 @@ node scripts/venice-test.js
 
 LoRAs can be browsed from Hugging Face and CivitAI, or resolved from a pasted model-card URL through `POST /api/lora/resolve`, which returns the weight file, base model, pipeline, and trigger words. CivitAI lookups use `CIVITAI_API_KEY` when present. Anything added by hand joins a shared library in D1, deduplicated on source + repo + file.
 
+`client/src/loras-data.js` ships a small seed list of public community adapters so the picker is useful on a fresh clone. It is a starting point, not a curated endorsement — entries are plain data objects and can be added, removed, or replaced. The seed set deliberately spans one adapter per family the compatibility filter understands (FLUX.1, Qwen-Image, Krea, Wan 2.1), which is what makes the tier dots below visible on a first run. `public/loras.js`, used by the static Docker preview, is regenerated from that file with `node scripts/sync-legacy-loras.mjs public/loras.js`.
+
 Picking a LoRA that the selected model cannot actually load wastes a generation, so the pickers filter by compatibility using a three-tier model in `client/src/lora-compat.js`:
 
-- **Verified** (green) — the exact LoRA and model pair has completed a real run.
-- **Likely** (yellow) — curated target, matching family and pipeline, tolerating minor version drift such as Wan 2.1 against 2.2.
+- **Verified** (green) — the exact LoRA and model pair has completed a real run. The list starts empty, since a pair only earns green once it has actually run; add a row to `VERIFIED_LORA_RUNS` in `client/src/loras-data.js` when one does.
+- **Likely** (yellow) — curated target, matching family and pipeline, tolerating minor version drift such as Wan 2.1 against 2.2. This is the tier most seed entries land in.
 - **Incompatible** (red) — family mismatch, pipeline mismatch, or a major version gap such as Wan 2.x against 3.x. Hidden unless show-all is enabled.
 
 A Wan major-version rule hides cross-generation LoRAs outright, since those silently fail rather than degrade. Weight downloads go through the Worker with `Range` and `206` passthrough so interrupted multi-gigabyte fetches resume.
@@ -340,6 +360,18 @@ A Wan major-version rule hides cross-generation LoRAs outright, since those sile
 `POST /api/judge` proxies to the Jev verifier at `api.typesafe.ai`, with an abort-based timeout clamped between 1 s and 30 s. Verdicts render as a badge on the enhancer result, and `POST /api/judge/log` records the probability, model, and latency of each check so the thresholds can be calibrated against real traffic before the signal is trusted. The tables are created on first write, so the pilot can be removed without a migration.
 
 Without `JEV_API_KEY` the route returns a clear not-configured error and the rest of the application is unaffected.
+
+---
+
+## Content scope
+
+This is a prompt-engineering tool, and it treats prompts as an optimization problem rather than a content-moderation one. Two consequences are worth stating plainly.
+
+**The enhancer does not filter.** Its system prompt frames the task as format conversion, so it rewrites a prompt for the target model regardless of subject matter and leaves policy to the downstream generative model. The enhancer is a text transform; it does not decide what a model will or will not produce.
+
+**The LoRA picker has a second bucket.** Alongside the general seed list, `NSFW_LORAS` in `client/src/loras-data.js` holds uncensored and adult-oriented adapters, shown under a separate picker variant so the default view stays clean. These are ordinary public community checkpoints on the Hub; the only thing distinguishing them is which list they appear in. They are handled identically to any other adapter — same schema, same compatibility tiers, same `Add LoRA from URL` path.
+
+Whether a given adapter is permitted is still up to the model consuming it. MuAPI applies its own policies, and many hosted models will refuse an explicit request regardless of the adapter loaded. Use of these adapters is subject to the licences of the individual checkpoints and to the terms of the service actually generating the image.
 
 ---
 
