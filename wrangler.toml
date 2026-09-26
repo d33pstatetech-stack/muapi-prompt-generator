@@ -26,11 +26,13 @@ bucket_name = "genai-assets"
 [vars]
 MUAPI_BASE_URL = "https://api.muapi.ai/api/v1"
 # Repos the /api/hf/file proxy may serve, as comma-separated owner/repo or
-# owner/* entries. Empty denies everything, which is the safe default: the
-# endpoint is reachable without a session so that upstream fetchers can pull
-# private weights, and an open proxy would spend this account's HF token and
-# bandwidth on arbitrary files. Add an entry only for a repo you own.
-HF_PROXY_REPO_ALLOWLIST = ""
+# owner/* entries. The endpoint is reachable without a session so that upstream
+# fetchers can pull PRIVATE weights with this account's HF token, which is also
+# why it must not be an open proxy. Public adapters are unaffected either way:
+# their URLs are never rewritten, and the provider fetches them from the Hub
+# anonymously.
+# The wildcard covers this owner's own repos, including any added later.
+HF_PROXY_REPO_ALLOWLIST = "D33pStateTech/*"
 # Canonical origin to advertise when rewriting HuggingFace URLs to the proxy.
 # Leave empty to use the incoming request origin. Set this when preview
 # deployments get ephemeral hostnames that upstream fetchers cannot reach.

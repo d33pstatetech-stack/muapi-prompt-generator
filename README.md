@@ -236,11 +236,15 @@ Two plain vars control the private-LoRA proxy, both defaulting to a safe state:
 | `HF_PROXY_BASE_URL` | `""` (request origin) | Canonical origin advertised when rewriting Hugging Face URLs to the proxy |
 
 `/api/hf/file` is reachable without a session, because an upstream fetcher needs
-to pull private weights without holding Hugging Face credentials. That makes an
-open proxy a real risk, so the allowlist is empty by default and only exact
-entries or owner wildcards are honoured. `HF_PROXY_BASE_URL` exists for preview
-deployments, which get ephemeral hostnames that upstream fetchers cannot
-reliably reach.
+to pull **private** weights without holding Hugging Face credentials. That makes
+an open proxy a real risk, so the allowlist is closed by default and only exact
+entries or owner wildcards are honoured.
+
+The allowlist does **not** restrict which LoRAs can be used. A repo that is not
+listed has its URL passed through untouched, and MuAPI fetches it from the Hub
+directly and anonymously — that is the normal path for every public adapter. The
+gate only decides which repos this Worker will fetch *on MuAPI's behalf* using
+this account's token, which is what private or gated repos require.
 
 Secrets are set with `wrangler secret put` and injected per request. For local development they live in `.dev.vars`, copied from `.dev.vars.example`. `.dev.vars` and `.env` are git-ignored; never commit a populated copy.
 
@@ -343,7 +347,16 @@ node scripts/venice-test.js
 
 LoRAs can be browsed from Hugging Face and CivitAI, or resolved from a pasted model-card URL through `POST /api/lora/resolve`, which returns the weight file, base model, pipeline, and trigger words. CivitAI lookups use `CIVITAI_API_KEY` when present. Anything added by hand joins a shared library in D1, deduplicated on source + repo + file.
 
-`client/src/loras-data.js` ships a small seed list of public community adapters so the picker is useful on a fresh clone. It is a starting point, not a curated endorsement — entries are plain data objects and can be added, removed, or replaced. The seed set deliberately spans one adapter per family the compatibility filter understands (FLUX.1, Qwen-Image, Krea, Wan 2.1), which is what makes the tier dots below visible on a first run. `public/loras.js`, used by the static Docker preview, is regenerated from that file with `node scripts/sync-legacy-loras.mjs public/loras.js`.
+`client/src/loras-data.js` holds the picker's seed data in three lists that share
+one shape: `CURATED_LORAS` (public community adapters), `OWN_LORAS` (the
+maintainer's own trained adapters), and `NSFW_LORAS` (uncensored, shown in its
+own picker variant). `USER_LORAS` is the first two combined, which is what the
+default picker renders. All of it is plain data — add, remove, or reorder freely.
+The curated list deliberately spans one adapter per family the compatibility
+filter understands (FLUX.1, Qwen-Image, Krea Raw, Krea Turbo, Wan 2.1), which is
+what makes the tier dots visible on a first run. `public/loras.js`, used by the
+static Docker preview, is regenerated from that file with
+`node scripts/sync-legacy-loras.mjs public/loras.js`.
 
 Picking a LoRA that the selected model cannot actually load wastes a generation, so the pickers filter by compatibility using a three-tier model in `client/src/lora-compat.js`:
 
