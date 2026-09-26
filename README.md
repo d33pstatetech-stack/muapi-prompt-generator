@@ -180,11 +180,11 @@ Honest accounting, since these are the places a deployment on this plan can hit 
 
 ## API reference
 
-The gate covers every route that spends a key, touches history, or can modify state. The read-only catalog routes (`/api/health`, `/api/models`, `/api/models/:id`, `/api/categories`, `/api/families`) and the Hugging Face file proxy (`/api/hf/file`) stay open so the model list can be browsed and cached without a session.
+The gate covers every route that spends a key, touches history, or can modify state. The read-only catalog routes (`/api/health`, `/api/models`, `/api/models/:id`, `/api/categories`, `/api/families`) and the Hugging Face file proxy (`/api/hf/file`) stay open in the Worker so the model list can be browsed and cached without a session. An Access application covering the whole hostname will still intercept them at the edge; the split only matters if Access is scoped to specific paths.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/health` | Model count, last sync time, key status, run counts *(public)* |
+| GET | `/api/health` | Model count, last sync time, key status, run counts |
 | GET | `/api/models` | Catalog listing — `?category=&family=&group_of=&q=&limit=` |
 | GET | `/api/models/:id` | Single model plus parameter schema |
 | GET | `/api/categories` | Category counts |
