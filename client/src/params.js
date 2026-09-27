@@ -20,11 +20,11 @@ export function isLoraParam(name, spec = {}) {
 }
 
 export function loraHintText() {
-  return 'Best first: civitai:MODEL@VERSION (most reliable on MuAPI) · HuggingFace owner/repo (some endpoints) · full https://….safetensors URL. Multi-LoRA fields: one per line (commas also work).';
+  return 'Best first: civitai:MODEL@VERSION (most reliable on MuAPI)\nHuggingFace owner/repo works on some endpoints\nFull https://….safetensors URLs also work\nMulti-LoRA fields take one per line (commas also work)';
 }
 
 export function sizeHintText() {
-  return 'Format: width*height (e.g. 1024*1024). Limits vary by model — width/height fields show their own min/max where the schema defines them.';
+  return 'Format is width*height (e.g. 1024*1024)\nLimits vary by model — width/height fields show their own min/max where the schema defines them';
 }
 
 export function loraTokenIssues(tok) {
