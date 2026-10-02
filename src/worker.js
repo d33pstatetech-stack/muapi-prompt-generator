@@ -1184,6 +1184,26 @@ async function handleApiRoute(request, env, path, ctx) {
       return jsonResponse({ runs: results || [], total: results ? results.length : 0 });
     } catch (e) { return jsonResponse({ error: e.message }, 500); }
   }
+  if (path === '/api/history/model-stats' && request.method === 'GET') {
+    const H = histDB(env);
+    if (!H) return jsonResponse({ error: 'HISTORY not configured' }, 500);
+    const q = new URL(request.url);
+    const limit = Math.min(parseInt(q.searchParams.get('limit') || '50', 10) || 50, 200);
+    const conds = [], vals = [];
+    const sourceApp = q.searchParams.get('source_app');
+    if (sourceApp) { conds.push('source_app = ?'); vals.push(sourceApp); }
+    const provider = q.searchParams.get('provider');
+    if (provider) { conds.push('provider = ?'); vals.push(provider); }
+    try {
+      const { results } = await H.prepare(
+        `SELECT model, COUNT(*) AS runs, AVG(rating) AS avg_rating FROM runs${conds.length ? ' WHERE ' + conds.join(' AND ') : ''} GROUP BY model ORDER BY runs DESC LIMIT ?`
+      ).bind(...vals, limit).all();
+      const rows = (results || [])
+        .filter((r) => r && r.model)
+        .map((r) => ({ model: r.model, runs: Number(r.runs) || 0, avg_rating: r.avg_rating == null ? null : Number(r.avg_rating) }));
+      return jsonResponse(rows);
+    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+  }
 
   // ─── GET /api/health ───
   if (path === '/api/health') {

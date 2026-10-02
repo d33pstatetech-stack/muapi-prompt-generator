@@ -13,6 +13,8 @@ import Section from './components/Section';
 import SettingsModal from './components/SettingsModal';
 import useGeneration from './hooks/useGeneration';
 
+const DASHBOARD_URL = "https://generative-ai-dashboard.d33pstatetech.workers.dev";
+
 function useToast() {
   const [toasts, setToasts] = useState([]);
   const push = useCallback((message, kind = 'info') => {
@@ -211,6 +213,7 @@ export default function App() {
       <header className="border-b border-gray-800 sticky top-0 z-30 bg-gray-950/90 backdrop-blur">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
+            <a href={DASHBOARD_URL} className="text-xs text-gray-400 hover:text-white whitespace-nowrap flex-none">← Dashboard</a>
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center flex-none">
               <i className="fas fa-bolt text-white text-sm"></i>
             </div>
@@ -310,7 +313,7 @@ export default function App() {
 
           {gen.result && (
             <div className="panel">
-              <OutputCard result={gen.result} modelId={selectedId} notify={toast} />
+              <OutputCard result={gen.result} modelId={selectedId} notify={toast} prompt={prompt} params={params} />
             </div>
           )}
 

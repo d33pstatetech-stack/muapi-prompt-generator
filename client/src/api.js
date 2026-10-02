@@ -115,6 +115,22 @@ export async function rateJob({ externalJobId, rating }) {
   return json(res);
 }
 
+// Top-by-usage models for the picker favorites row. Best-effort: never
+// throws — the picker works offline without usage stats.
+export async function fetchModelStats({ limit = 50 } = {}) {
+  try {
+    const res = await fetch(`${API}/api/history/model-stats?limit=${limit}`);
+    const data = await json(res);
+    if (!res.ok) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.models)) return data.models;
+    if (Array.isArray(data.stats)) return data.stats;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export async function cloudList({ prefix = '', flat = false, cursor = null } = {}) {
   // Worker reads `recursive=1` (flat) vs `delimiter=/` (folder view); `flat=1` was silently ignored.
   const q = new URLSearchParams({ prefix, ...(flat ? { recursive: '1' } : { delimiter: '/' }), ...(cursor ? { cursor } : {}) });

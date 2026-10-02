@@ -1,23 +1,47 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { rateJob, saveOutputs } from '../api';
+import MediaViewer from './MediaViewer';
 
 function isVideoUrl(u) {
   return /\.(mp4|webm|mov)$/i.test(u || '') || (u || '').includes('video');
 }
 
 // Output card: media + meta + rating + R2 archive status.
-export default function OutputCard({ result, modelId, notify }) {
+export default function OutputCard({ result, modelId, notify, prompt, params }) {
   const [rating, setRating] = useState(0);
   const [arch, setArch] = useState(null); // { ok, total, firstErr } | { failed:true }
   const [sel, setSel] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const reqId = result?.requestId;
-  useEffect(() => { setSel(0); setRating(0); setArch(null); }, [reqId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSel(0); setRating(0); setArch(null); setViewerOpen(false); }, [reqId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!result?.outputs?.length) return null;
   const outputs = result.outputs;
   const url = outputs[Math.min(sel, outputs.length - 1)];
   const video = isVideoUrl(url);
   const costStr = result.cost?.amount_usd ? `$${Number(result.cost.amount_usd).toFixed(4)}` : 'N/A';
+  const viewerLoras = useMemo(() => {
+    if (!params || typeof params !== 'object') return null;
+    const out = {};
+    try {
+      for (const [k, v] of Object.entries(params)) {
+        if (/lora/i.test(k)) out[k] = v;
+      }
+    } catch {
+      return null;
+    }
+    return Object.keys(out).length ? out : null;
+  }, [params]);
+  const viewerItem = {
+    url,
+    prompt: typeof prompt === 'string' && prompt ? prompt : null,
+    model: modelId || null,
+    params: params && typeof params === 'object' ? params : null,
+    loras: viewerLoras,
+    rating: rating || null,
+    cost: result.cost?.amount_usd ?? result.cost ?? null,
+    timestamp: null,
+  };
 
   const copy = async (text, label) => {
     try {
@@ -56,9 +80,9 @@ export default function OutputCard({ result, modelId, notify }) {
         </div>
       </div>
       {video ? (
-        <video src={url} controls autoPlay loop className="w-full max-h-[500px] rounded-xl bg-black" />
+        <video src={url} controls autoPlay loop onClick={() => setViewerOpen(true)} title="Click to expand" className="w-full max-h-[500px] rounded-xl bg-black cursor-zoom-in" />
       ) : (
-        <img src={url} alt="Generated" className="w-full max-h-[500px] object-contain rounded-xl bg-black" />
+        <img src={url} alt="Generated" onClick={() => setViewerOpen(true)} title="Click to expand" className="w-full max-h-[500px] object-contain rounded-xl bg-black cursor-zoom-in" />
       )}
       {outputs.length > 1 && (
         <div className="flex gap-1.5 mt-2 overflow-x-auto" role="tablist" aria-label="Outputs">
@@ -93,6 +117,9 @@ export default function OutputCard({ result, modelId, notify }) {
         <ArchStatus arch={arch} />
       </div>
       <ArchiveReporter result={result} modelId={modelId} notify={notify} onDone={setArch} />
+      {viewerOpen && (
+        <MediaViewer item={viewerItem} onClose={() => setViewerOpen(false)} />
+      )}
     </div>
   );
 }

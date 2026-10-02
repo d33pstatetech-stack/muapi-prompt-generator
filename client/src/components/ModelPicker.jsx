@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchModelStats } from '../api';
 import { filterModels } from '../lora-compat';
 
 const GROUPS = [
@@ -16,6 +17,15 @@ const TIER_DOT = {
   no: ['bg-red-500', 'Incompatible with the pinned LoRA (visible via Show all)'],
 };
 
+// AzNten house models: spec pattern /az.?nten|asian[-_ ]?ten/i plus
+// underscore/dash/dot/space variants (az_nten, az-nten, asian_ten…).
+function isAzNten(m) {
+  const s = `${m?.id || ''} ${m?.name || ''}`;
+  return /az.?nten|asian[-_ ]?ten/i.test(s) || /az[\s._-]*nten|asian[\s._-]*ten/i.test(s);
+}
+
+const FAVORITE_USAGE_TOP = 8;
+
 // Searchable model picker with category tabs. Props: models, value (id),
 // onSelect(id), focusLoras (pinned LoRA entries filter the list to
 // compatibles), onClearFocus().
@@ -24,6 +34,8 @@ export default function ModelPicker({ models, value, onSelect, focusLoras, onCle
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [showAllModels, setShowAllModels] = useState(false);
+  const [collapsed, setCollapsed] = useState({}); // cat -> true (collapsed by default)
+  const [stats, setStats] = useState([]);
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -34,6 +46,15 @@ export default function ModelPicker({ models, value, onSelect, focusLoras, onCle
     return () => document.removeEventListener('pointerdown', close);
   }, []);
 
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const s = await fetchModelStats({ limit: 100 });
+      if (live && Array.isArray(s)) setStats(s);
+    })();
+    return () => { live = false; };
+  }, []);
+
   const focusing = Array.isArray(focusLoras) && focusLoras.length > 0;
   const mfilt = useMemo(() => filterModels(models, focusLoras), [models, focusLoras]);
   const tierOf = useMemo(() => {
@@ -42,6 +63,21 @@ export default function ModelPicker({ models, value, onSelect, focusLoras, onCle
     for (const h of mfilt.hiddenItems) m.set(h.model.id, 'no');
     return m;
   }, [mfilt]);
+
+  const runsOf = useMemo(() => {
+    const m = new Map();
+    for (const s of stats) {
+      if (s && s.model) m.set(s.model, Number(s.runs) || 0);
+    }
+    return m;
+  }, [stats]);
+  const ratingOf = useMemo(() => {
+    const m = new Map();
+    for (const s of stats) {
+      if (s && s.model && s.avg_rating != null) m.set(s.model, Number(s.avg_rating));
+    }
+    return m;
+  }, [stats]);
 
   const filtered = useMemo(() => {
     const base = group === 'all' ? models : models.filter((m) => m.group_of === group);
@@ -58,12 +94,75 @@ export default function ModelPicker({ models, value, onSelect, focusLoras, onCle
       .map(([cat, ms]) => [cat, [...ms].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))]);
   }, [models, group, query, focusing, showAllModels, tierOf]);
 
+  // Favorites: (a) AzNten house models + (b) top-by-usage from
+  // /api/history/model-stats. Same group/query/compat filters as the list,
+  // sorted aznten-first then by runs desc.
+  const favorites = useMemo(() => {
+    const base = group === 'all' ? models : models.filter((m) => m.group_of === group);
+    const q = query.trim().toLowerCase();
+    const inScope = q
+      ? base.filter((m) => (m.id || '').toLowerCase().includes(q) || (m.name || '').toLowerCase().includes(q))
+      : base;
+    const compat = focusing && !showAllModels
+      ? inScope.filter((m) => (tierOf.get(m.id) || 'likely') !== 'no')
+      : inScope;
+    const scopeIds = new Set(compat.map((m) => m.id));
+    const az = models.filter((m) => scopeIds.has(m.id) && isAzNten(m));
+    const azIds = new Set(az.map((m) => m.id));
+    const topUsage = [...stats]
+      .sort((a, b) => (Number(b?.runs) || 0) - (Number(a?.runs) || 0))
+      .slice(0, FAVORITE_USAGE_TOP)
+      .map((s) => models.find((m) => m.id === s?.model))
+      .filter((m) => m && scopeIds.has(m.id) && !azIds.has(m.id));
+    const seen = new Set();
+    const favs = [...az, ...topUsage].filter((m) => {
+      if (!m || seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+    return favs.sort((a, b) => {
+      const aa = isAzNten(a) ? 0 : 1;
+      const bb = isAzNten(b) ? 0 : 1;
+      if (aa !== bb) return aa - bb;
+      return (runsOf.get(b.id) || 0) - (runsOf.get(a.id) || 0);
+    });
+  }, [models, group, query, focusing, showAllModels, tierOf, stats, runsOf]);
+
   const count = useMemo(
     () => filtered.reduce((n, [, ms]) => n + ms.length, 0),
     [filtered]
   );
 
+  const searching = query.trim() !== '';
+  const toggleCat = (cat) => setCollapsed((c) => ({ ...c, [cat]: !c[cat] }));
+
   const selected = models.find((m) => m.id === value);
+
+  const renderModelRow = (m) => (
+    <button
+      key={m.id}
+      type="button"
+      onClick={() => { onSelect(m.id); setOpen(false); setQuery(''); }}
+      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-800 ${
+        m.id === value ? 'text-violet-300 bg-violet-950/40' : 'text-gray-300'
+      }`}
+    >
+      {focusing && (() => {
+        const tier = tierOf.get(m.id) || 'likely';
+        const [dotCls, dotTip] = TIER_DOT[tier] || TIER_DOT.likely;
+        return <span title={dotTip} className={`w-2 h-2 rounded-full flex-none ${dotCls}`}></span>;
+      })()}
+      <span className="truncate flex-1">{m.id}</span>
+      {(runsOf.get(m.id) || ratingOf.get(m.id) != null) && (
+        <span className="flex-none text-[10px] font-mono text-gray-500" title={`${runsOf.get(m.id) || 0} runs${ratingOf.get(m.id) != null ? ` · ★${Number(ratingOf.get(m.id)).toFixed(1)}` : ''}`}>
+          {runsOf.get(m.id) || 0}×{ratingOf.get(m.id) != null ? ` ★${Number(ratingOf.get(m.id)).toFixed(1)}` : ''}
+        </span>
+      )}
+      <span className="flex-none text-[10px] font-mono text-gray-500">
+        {m.cost > 0 ? `$${m.cost}` : 'Free'}{m.dynamic_pricing ? '*' : ''}
+      </span>
+    </button>
+  );
 
   return (
     <div>
@@ -126,34 +225,32 @@ export default function ModelPicker({ models, value, onSelect, focusLoras, onCle
         </div>
         {open && (
           <div className="absolute z-40 left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg shadow-xl">
-            {filtered.length === 0 && <div className="p-4 text-sm text-gray-600">No models found</div>}
-            {filtered.map(([cat, ms]) => (
-              <div key={cat}>
-                <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-gray-500 sticky top-0 bg-gray-900">
-                  {cat} ({ms.length})
+            {filtered.length === 0 && favorites.length === 0 && <div className="p-4 text-sm text-gray-600">No models found</div>}
+            {favorites.length > 0 && (
+              <div>
+                <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-amber-300 sticky top-0 bg-gray-900">
+                  ★ Favorites ({favorites.length})
                 </div>
-                {ms.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => { onSelect(m.id); setOpen(false); setQuery(''); }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-800 ${
-                      m.id === value ? 'text-violet-300 bg-violet-950/40' : 'text-gray-300'
-                    }`}
-                  >
-                    {focusing && (() => {
-                      const tier = tierOf.get(m.id) || 'likely';
-                      const [dotCls, dotTip] = TIER_DOT[tier] || TIER_DOT.likely;
-                      return <span title={dotTip} className={`w-2 h-2 rounded-full flex-none ${dotCls}`}></span>;
-                    })()}
-                    <span className="truncate flex-1">{m.id}</span>
-                    <span className="flex-none text-[10px] font-mono text-gray-500">
-                      {m.cost > 0 ? `$${m.cost}` : 'Free'}{m.dynamic_pricing ? '*' : ''}
-                    </span>
-                  </button>
-                ))}
+                {favorites.map(renderModelRow)}
               </div>
-            ))}
+            )}
+            {filtered.map(([cat, ms]) => {
+              const isCollapsed = searching ? false : !!collapsed[cat];
+              return (
+                <div key={cat}>
+                  <button
+                    type="button"
+                    onClick={() => toggleCat(cat)}
+                    aria-expanded={!isCollapsed}
+                    className="w-full flex items-center gap-1.5 px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-gray-500 sticky top-0 bg-gray-900 hover:text-gray-300 text-left"
+                  >
+                    <i className={`fas ${isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'} text-[8px]`}></i>
+                    <span className="flex-1 truncate">{cat} ({ms.length})</span>
+                  </button>
+                  {!isCollapsed && ms.map(renderModelRow)}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
