@@ -20,7 +20,7 @@ export function isLoraParam(name, spec = {}) {
 }
 
 export function loraHintText() {
-  return 'Best first: civitai:MODEL@VERSION (most reliable on MuAPI)\nHuggingFace owner/repo works on some endpoints\nFull https://….safetensors URLs also work\nMulti-LoRA fields take one per line (commas also work)';
+  return 'Verified against live runs on qwen-image-text-to-image-2512-lora:\n  WORKS  owner/repo for a public HuggingFace repo\n  WORKS  full https://REPO/resolve/main/FILE.safetensors\n  FAILS  civitai:MODEL@VERSION - rejected on these endpoints\n  FAILS  civitai.com/... - CivitAI answers 403 to the provider fetcher\n  FAILS  huggingface.co/... with no https:// prefix\n  Private or gated repos (401 anonymously) need the /api/hf/file proxy -\n  ask for the full resolve URL, not the bare repo name\n  Multi-LoRA fields take one per line (commas also work)';
 }
 
 export function sizeHintText() {
