@@ -43,7 +43,19 @@ MUAPI_BASE_URL = "https://api.muapi.ai/api/v1"
 #   2. The URL must contain /resolve/main/<file>. The bare owner/repo form
 #      carries no filename, so it is deliberately NOT rewritten - the worker
 #      cannot know which weight file to ask for.
-HF_PROXY_REPO_ALLOWLIST = ""
+#
+# Every repo currently in the LoRA library, including Sentinel7/qwen-image and
+# D33pStateTech/*, was verified readable anonymously, so none of them NEED the
+# proxy. They are listed anyway so that a full /resolve/ URL for any of them is
+# guaranteed to keep working even if the owner later makes a repo private, and
+# so the mechanism is exercised rather than dormant.
+#
+# Verified 2026-10-03: Sentinel7/qwen-image returns gated=false and serves every
+# weight anonymously, including nested paths such as
+# 2004155/2611939/Qwen4Play-2512.1_e10.safetensors. It was previously assumed to
+# be private because two Sentinel7 repo NAMES return 401 - those names simply do
+# not exist; they are library display ids, not real repos.
+HF_PROXY_REPO_ALLOWLIST = "D33pStateTech/*,Sentinel7/*"
 # Canonical origin to advertise when rewriting HuggingFace URLs to the proxy.
 # Leave empty to use the incoming request origin. Set this when preview
 # deployments get ephemeral hostnames that upstream fetchers cannot reach.

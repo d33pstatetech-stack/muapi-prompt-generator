@@ -411,8 +411,22 @@ async function handleApiRoute(request, env, path, ctx) {
     if (!hfRepoAllowed(env, repo)) {
       return jsonResponse({ error: 'repo not allowlisted', hint: 'add it to the HF_PROXY_REPO_ALLOWLIST var (comma-separated owner/repo or owner/*)' }, 403);
     }
-    if (/[/\\]/.test(file) || file.includes('..')) {
-      return jsonResponse({ error: 'invalid file param' }, 400);
+    // Nested paths are legitimate: several real repos keep LoRA weights in
+    // subdirectories (Sentinel7/qwen-image uses numeric folders such as
+    // 2004155/2611939/Qwen4Play-2512.1_e10.safetensors). Rejecting "/" made a
+    // gated repo with that layout impossible to proxy at all. Traversal,
+    // backslashes, empty segments and absolute paths are still refused, and the
+    // .safetensors extension is required so this endpoint cannot be used to
+    // fetch arbitrary files from the account.
+    const segs = String(file).split('/');
+    const badFile =
+      String(file).includes('..') ||
+      String(file).includes('\\') ||
+      String(file).startsWith('/') ||
+      segs.some((s) => !s || s === '.' || s === '..') ||
+      !/\.safetensors$/i.test(String(file));
+    if (badFile) {
+      return jsonResponse({ error: 'file must be a repo-relative .safetensors path', hint: 'e.g. pytorch_lora_weights.safetensors or 2004155/2611939/Qwen4Play.safetensors' }, 400);
     }
     const hfUrl = `https://huggingface.co/${repo}/resolve/main/${file}`;
     const headers = {};
@@ -1521,7 +1535,7 @@ async function fetchJsonUpstream(url, env, timeoutMs = 25000) {
   try {
     const headers = { 'User-Agent': LORA_UA, Accept: 'application/json' };
     if (/huggingface\.co/.test(url) && env.HUGGINGFACE_API_KEY) headers.Authorization = `Bearer ${env.HUGGINGFACE_API_KEY}`;
-    if (/civitai\.com/.test(url) && env.CIVITAI_API_KEY) headers.Authorization = `Bearer ${env.CIVITAI_API_KEY}`;
+    if (/civitai\.[a-z]{2,6}/.test(url) && env.CIVITAI_API_KEY) headers.Authorization = `Bearer ${env.CIVITAI_API_KEY}`;
     const res = await fetch(url, { headers, signal: ctrl.signal });
     if ((res.status === 401 || res.status === 403) && headers.Authorization) {
       // Retry anonymously: distinguishes nonexistent (404) from gated/private (still denied).
@@ -1621,7 +1635,7 @@ async function resolveLoraUrl(url, env) {
   const u = String(url || '').trim();
   let m = u.match(/huggingface\.co\/([^/\s?#]+)\/([^/\s?#]+)/i);
   if (m) return resolveHuggingFace(m[1], m[2].replace(/\/$/, ''), env);
-  m = u.match(/civitai\.com\/models\/(\d+)/i);
+  m = u.match(/civitai\.[a-z]{2,6}\/models\/(\d+)/i);
   if (m) {
     let ver = null;
     try { ver = new URL(u).searchParams.get('modelVersionId'); } catch { /* ignore */ }
@@ -1629,7 +1643,7 @@ async function resolveLoraUrl(url, env) {
   }
   m = u.match(/^civitai:(\d+)(?:@(\d+))?$/i);
   if (m) return resolveCivitai(m[1], m[2] || null, env);
-  throw new Error('URL must be a huggingface.co/{owner}/{repo} or civitai.com/models/{id} link (civitai:ID[@VERSION] also works)');
+  throw new Error('URL must be a huggingface.co/{owner}/{repo} or civitai.com/models/{id} link (any CivitAI mirror such as civitai.red also works; civitai:ID[@VERSION] too)');
 }
 
 // Self-migrating: production D1 can't be touched from here, so handlers ensure
