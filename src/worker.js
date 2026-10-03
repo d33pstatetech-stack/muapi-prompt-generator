@@ -1202,7 +1202,14 @@ async function handleApiRoute(request, env, path, ctx) {
         .filter((r) => r && r.model)
         .map((r) => ({ model: r.model, runs: Number(r.runs) || 0, avg_rating: r.avg_rating == null ? null : Number(r.avg_rating) }));
       return jsonResponse(rows);
-    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+    } catch (e) {
+      // A local dev HISTORY database has no `runs` table (production D1 cannot
+      // be cloned locally). That is an empty result set, not a failure: the UI
+      // hides run counts and ratings and says why. Returning 500 here made the
+      // whole catalogue look broken.
+      if (/no such table/i.test(String(e && e.message))) return jsonResponse([]);
+      return jsonResponse({ error: e.message }, 500);
+    }
   }
 
   // ─── GET /api/health ───
