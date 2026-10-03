@@ -145,15 +145,31 @@ export async function runGeneration(
 /* ---------------- LoRAs: real library, real persistence ---------------- */
 
 const api = {
-  resolve: async (url: string): Promise<any> => {
-    const res = await fetch('/api/lora/resolve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(errText(d.error || d.message, `Resolve failed (${res.status})`));
-    return d;
+  resolve: async (url: string, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<any> => {
+    // 60s client timeout so a dead CDN host fails visibly instead of hanging
+    // the button. Mirrors client/src/api.js resolveLoraUrl.
+    const timeoutMs = opts.timeoutMs ?? 60000;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const onAbort = () => ctrl.abort();
+    opts.signal && opts.signal.addEventListener('abort', onAbort);
+    try {
+      const res = await fetch('/api/lora/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+        signal: ctrl.signal,
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(errText(d.error || d.message, `Resolve failed (${res.status})`));
+      return d;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('Resolve timed out after 60s — the host may be unreachable or the CDN link expired');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      opts.signal && opts.signal.removeEventListener('abort', onAbort);
+    }
   },
   customList: async (): Promise<any[]> => {
     const res = await fetch('/api/loras/custom');
