@@ -55,27 +55,25 @@ export default function Composer({
     .map(([n, s]) => s.title || n.replace(/_/g, " "));
 
   /* Real estimate from the Worker, not a local guess. Debounced so typing in a
-     numeric field does not fire a request per keystroke. */
+     numeric field does not fire a request per keystroke. The quote is stored
+     against the params it was computed for, so "stale" is derived during render
+     rather than flipped by an effect. */
   const debouncedParams = useDebounced(JSON.stringify(params), 350);
-  const [cost, setCost] = useState(0);
-  const [costStale, setCostStale] = useState(false);
+  const [quote, setQuote] = useState<{ key: string; cost: number } | null>(null);
   useEffect(() => {
-    if (!model) {
-      setCost(0);
-      return;
-    }
+    if (!model) return;
     let live = true;
-    setCostStale(true);
     estimateCost(model, JSON.parse(debouncedParams)).then((c) => {
-      if (live) {
-        setCost(c);
-        setCostStale(false);
-      }
+      if (live) setQuote({ key: `${model.id}|${debouncedParams}`, cost: c });
     });
     return () => {
       live = false;
     };
   }, [model, debouncedParams]);
+
+  const quoteKey = model ? `${model.id}|${debouncedParams}` : "";
+  const cost = quote?.key === quoteKey ? quote.cost : 0;
+  const costStale = !!model && quote?.key !== quoteKey;
 
   async function enhance() {
     if (!prompt.trim()) {
