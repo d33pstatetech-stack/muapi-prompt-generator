@@ -3,6 +3,7 @@ import Icon from "../ui/Icon";
 import { Badge, EmptyState, Segmented, TierBadge } from "../ui/primitives";
 import { useDebounced, useVirtualRows } from "../lib/hooks";
 import { tierFor } from "../lib/tiers";
+import type { App } from "../lib/loraFormats";
 import type { Group, Lora, Model } from "../lib/types";
 
 const ROW = 60;
@@ -22,12 +23,18 @@ export default function CatalogPane({
   onSelect,
   pinnedLoras,
   onClearPins,
+  confirmedSet,
+  app,
 }: {
   models: Model[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   pinnedLoras: Lora[];
   onClearPins: () => void;
+  /* Central verifications (muapi pairs as `modelId::loraId`). Null/empty →
+     fall back to baked tierFor; behavior identical then. */
+  confirmedSet?: Set<string> | null;
+  app?: App;
 }) {
   const [group, setGroup] = useState<Group | "all">("all");
   const [raw, setRaw] = useState("");
@@ -43,9 +50,35 @@ export default function CatalogPane({
   const tiers = useMemo(() => {
     const m = new Map<string, ReturnType<typeof tierFor>>();
     if (!pinning) return m;
-    for (const mo of models) m.set(mo.id, tierFor(mo, pinnedLoras));
+    const useCentral = !!confirmedSet && confirmedSet.size > 0 && (app ?? 'muapi') === 'muapi';
+    for (const mo of models) {
+      if (useCentral && confirmedSet) {
+        let verified = false;
+        for (const l of pinnedLoras) {
+          if (confirmedSet.has(`${mo.id}::${l.id}`)) {
+            verified = true;
+            break;
+          }
+          if (/^civitai:/i.test(l.id)) {
+            const n = l.id.replace(/^civitai:/i, '');
+            for (const k of confirmedSet) {
+              if (k.startsWith(`${mo.id}::`) && k.includes(n)) {
+                verified = true;
+                break;
+              }
+            }
+            if (verified) break;
+          }
+        }
+        if (verified) {
+          m.set(mo.id, 'verified');
+          continue;
+        }
+      }
+      m.set(mo.id, tierFor(mo, pinnedLoras));
+    }
     return m;
-  }, [models, pinnedLoras, pinning]);
+  }, [models, pinnedLoras, pinning, confirmedSet, app]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();

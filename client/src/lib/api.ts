@@ -190,6 +190,18 @@ const api = {
   customDelete: async (id: number | string): Promise<void> => {
     await fetch(`/api/loras/custom/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
   },
+  libraryList: async (): Promise<any[]> => {
+    const res = await fetch('/api/loras/library');
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return [];
+    return Array.isArray(d.loras) ? d.loras : [];
+  },
+  verificationsList: async (): Promise<any[]> => {
+    const res = await fetch('/api/loras/verifications');
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return [];
+    return Array.isArray(d.verifications) ? d.verifications : [];
+  },
 };
 
 /** Custom LoRAs stored server-side in D1 (shared across devices). */
@@ -198,6 +210,28 @@ export async function fetchCustomLoras(): Promise<any[]> {
     return await api.customList();
   } catch {
     return [];
+  }
+}
+
+/* Central LoRA repository (Phase A read-only). Fail-soft → null so callers
+   can distinguish "unreachable/old-DB" (null, keep baked seed) from
+   "reachable but empty" ([], also keep baked seed). Non-empty arrays replace
+   the baked seed. */
+export async function fetchLibrary(): Promise<any[] | null> {
+  try {
+    return await api.libraryList();
+  } catch {
+    return null;
+  }
+}
+
+/* Run-confirmed LoRA ↔ model pairs. Fail-soft → null; callers fall back to
+   baked CONFIRMED/VERIFIED lists when central is null or empty. */
+export async function fetchVerifications(): Promise<any[] | null> {
+  try {
+    return await api.verificationsList();
+  } catch {
+    return null;
   }
 }
 

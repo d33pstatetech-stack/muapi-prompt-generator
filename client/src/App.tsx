@@ -11,8 +11,10 @@ import {
   deleteCustomLora as apiDeleteCustom,
   estimateCost,
   fetchCustomLoras,
+  fetchLibrary,
   fetchModels,
   fetchSchema,
+  fetchVerifications,
   runGeneration,
   saveCustomLora,
   toLora,
@@ -43,6 +45,67 @@ function seedLibrary(): Lora[] {
 /* Which provider this build talks to. Decides the LoRA value format the UI
    offers, and which confirmed model+LoRA pairs count as verified. */
 const APP_ID: App = 'muapi';
+
+/* Central lora_library row → exact seed-entry shape. isAznten comes from
+   group_name (already computed server-side); customs keep the regex path
+   via tagCustomEntry below. Fail-soft: triggers_json parse failure → []. */
+function centralRowToEntry(row: any): any {
+  let triggers: string[] = [];
+  try {
+    if (row?.triggers_json != null) {
+      const t = JSON.parse(row.triggers_json || '[]');
+      if (Array.isArray(t)) triggers = t.map(String);
+    } else if (Array.isArray(row?.triggers)) {
+      triggers = row.triggers.map(String);
+    }
+  } catch {
+    triggers = Array.isArray(row?.triggers) ? row.triggers.map(String) : [];
+  }
+  return {
+    id: row?.id,
+    name: row?.name || row?.id,
+    source: row?.source,
+    repo: row?.repo || row?.id,
+    repo_url: row?.repo_url,
+    file: row?.file,
+    file_url: row?.file_url,
+    file_url_muapi: (row as any)?.file_url_muapi,
+    file_url_replicate: (row as any)?.file_url_replicate,
+    file_url_wavespeed: (row as any)?.file_url_wavespeed,
+    base_model: row?.base_model,
+    base_family: row?.base_family,
+    baseFamily: row?.base_family || (row as any)?.baseFamily || '',
+    pipeline: row?.pipeline,
+    triggers,
+    instance_prompt: triggers[0] || (row as any)?.instance_prompt || '',
+    isNsfw: !!row?.nsfw,
+    nsfw: !!row?.nsfw,
+    isAznten: row?.group_name === 'aznten',
+    group_name: row?.group_name,
+    note: row?.note,
+    suggested_target: row?.suggested_target,
+    muapi_model: row?.muapi_model,
+    replicate_model: row?.replicate_model,
+    wavespeed_model: row?.wavespeed_model,
+    custom: false,
+  };
+}
+
+/* Central-first confirmed check. When the central set is non-empty (muapi
+   pairs only), it decides; otherwise callers fall back to the baked
+   CONFIRMED/VERIFIED lists. Mirrors isConfirmed's civitai: numeric fallback
+   so stored id/url variants still match. */
+function centralHasPair(set: Set<string> | null, modelId: string, loraId: string): boolean {
+  if (!set || !set.size || !modelId || !loraId) return false;
+  if (set.has(`${modelId}::${loraId}`)) return true;
+  if (/^civitai:/i.test(loraId)) {
+    const n = loraId.replace(/^civitai:/i, '');
+    for (const k of set) {
+      if (k.startsWith(`${modelId}::`) && k.includes(n)) return true;
+    }
+  }
+  return false;
+}
 
 /* Customs flow through the same regex-on-name grouping as the seed library,
    so a custom named aznten-* lands in the Aznten tab. Seed grouping is
@@ -95,6 +158,9 @@ function Console() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [enhancementId, setEnhancementId] = useState<number | null>(null);
   const [library, setLibrary] = useState<Lora[]>(seedLibrary);
+  /* Central verifications (lora_id+model_id+app). Null = unreachable/empty →
+     badges fall back to baked CONFIRMED/VERIFIED lists. */
+  const [centralVerifs, setCentralVerifs] = useState<any[] | null>(null);
   /* Ad-hoc LoRA for this run only — never saved to the library or D1. */
   const [adhocLora, setAdhocLora] = useState("");
 
@@ -138,6 +204,52 @@ function Console() {
       live = false;
     };
   }, []);
+
+  /* ---------------- central library: replaces baked seed when non-empty --- */
+  /* Fail-soft: null (unreachable) or [] (old DB without tables) keeps the
+     baked USER_LORAS/NSFW_LORAS. Customs merge unchanged on top — existing
+     custom entries are preserved across the swap. */
+  useEffect(() => {
+    let live = true;
+    fetchLibrary().then((rows) => {
+      if (!live || !rows || !rows.length) return;
+      const mapped: Lora[] = rows.map((r: any) => toLora(centralRowToEntry(r), false));
+      setLibrary((ls) => {
+        const customs = ls.filter((l) => l.custom);
+        const have = new Set(mapped.map((l) => l.id));
+        const kept = customs.filter((c) => !have.has(c.id));
+        return [...mapped, ...kept];
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /* ---------------- central verifications: confirmed badges first ---------- */
+  /* Null/empty → badges fall back to baked CONFIRMED/VERIFIED lists. */
+  useEffect(() => {
+    let live = true;
+    fetchVerifications().then((rows) => {
+      if (!live || !rows || !rows.length) return;
+      setCentralVerifs(rows);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /* Confirmed-set for badges/tiers: muapi pairs only. Null = use baked. */
+  const confirmedSet = useMemo(() => {
+    if (!centralVerifs?.length) return null;
+    const s = new Set<string>();
+    for (const v of centralVerifs) {
+      if (v?.app !== 'muapi') continue;
+      if (!v?.lora_id || !v?.model_id) continue;
+      s.add(`${v.model_id}::${v.lora_id}`);
+    }
+    return s.size ? s : null;
+  }, [centralVerifs]);
 
   /* ---------------- schema for the selected model ---------------- */
   const baseModel = useMemo(() => models.find((m) => m.id === selectedId) ?? null, [models, selectedId]);
@@ -208,13 +320,21 @@ function Console() {
   );
 
   /* ---------------- pinned adapters, with live tier ---------------- */
+  /* Central-first: a central muapi verification forces 'verified'; otherwise
+     the baked tierFor (CONFIRMED + lora-compat VERIFIED) decides. */
   const pinnedLoras = useMemo(
     () =>
       pinned
         .map((id) => library.find((l) => l.id === id))
         .filter(Boolean)
-        .map((l) => ({ ...(l as Lora), compatTier: tierFor(model, [l as Lora], APP_ID) })) as Lora[],
-    [pinned, library, model],
+        .map((l) => ({
+          ...(l as Lora),
+          compatTier:
+            confirmedSet && model && centralHasPair(confirmedSet, model.id, (l as Lora).id)
+              ? ('verified' as const)
+              : tierFor(model, [l as Lora], APP_ID),
+        })) as Lora[],
+    [pinned, library, model, confirmedSet],
   );
 
   /* ---------------- generation ---------------- */
@@ -389,7 +509,7 @@ function Console() {
   const resultCount = runs.reduce((n, r) => n + r.outputs.length, 0);
   const familyCount = useMemo(() => new Set(models.map((m) => m.family).filter(Boolean)).size, [models]);
 
-  const catalogue = <CatalogPane models={models} selectedId={selectedId} onSelect={selectModel} pinnedLoras={pinnedLoras} onClearPins={() => setPinned([])} />;
+  const catalogue = <CatalogPane models={models} selectedId={selectedId} onSelect={selectModel} pinnedLoras={pinnedLoras} onClearPins={() => setPinned([])} confirmedSet={confirmedSet} app={APP_ID} />;
 
   const composer = (
     <Composer
@@ -532,6 +652,7 @@ function Console() {
         onRemoveCustom={removeCustom}
         model={model}
         app={APP_ID}
+        confirmedSet={confirmedSet}
       />
 
       <Dialog open={resultsOpen && mid && !wide} onClose={() => setResultsOpen(false)} title="Results" size="lg">

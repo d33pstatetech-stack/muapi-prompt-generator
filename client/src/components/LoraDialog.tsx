@@ -20,6 +20,7 @@ export default function LoraDialog({
   onRemoveCustom,
   model,
   app,
+  confirmedSet,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,7 +31,36 @@ export default function LoraDialog({
   onRemoveCustom: (l: Lora) => Promise<void>;
   model: Model | null;
   app: App;
+  /* Central verifications (muapi pairs as `modelId::loraId`). Null/empty →
+     fall back to baked CONFIRMED/VERIFIED lists; behavior identical then. */
+  confirmedSet?: Set<string> | null;
 }) {
+  const hasCentral = !!confirmedSet && confirmedSet.size > 0;
+  const isConf = (a: App, modelId: string | null | undefined, loraId: string): boolean => {
+    if (hasCentral && a === 'muapi' && modelId && loraId && confirmedSet) {
+      if (confirmedSet.has(`${modelId}::${loraId}`)) return true;
+      if (/^civitai:/i.test(loraId)) {
+        const n = loraId.replace(/^civitai:/i, '');
+        for (const k of confirmedSet) {
+          if (k.startsWith(`${modelId}::`) && k.includes(n)) return true;
+        }
+      }
+      return false;
+    }
+    return isConfirmed(a, modelId, loraId);
+  };
+  const tierOne = (m: Model | null, l: Lora, a: App) => {
+    if (hasCentral && a === 'muapi' && m && confirmedSet) {
+      if (confirmedSet.has(`${m.id}::${l.id}`)) return 'verified' as const;
+      if (/^civitai:/i.test(l.id)) {
+        const n = l.id.replace(/^civitai:/i, '');
+        for (const k of confirmedSet) {
+          if (k.startsWith(`${m.id}::`) && k.includes(n)) return 'verified' as const;
+        }
+      }
+    }
+    return tierForOne(m, l, a);
+  };
   const { toast } = useToast();
   const [q, setQ] = useState("");
   const [url, setUrl] = useState("");
@@ -44,9 +74,10 @@ export default function LoraDialog({
       aznten: loras.filter((l) => l.entry?.isAznten).length,
       misc: loras.filter((l) => l.entry && !l.entry?.isAznten && !l.entry?.isNsfw).length,
       nsfw: loras.filter((l) => l.entry?.isNsfw).length,
-      confirmed: model ? loras.filter((l) => isConfirmed(app, model.id, l.id)).length : 0,
+      confirmed: model ? loras.filter((l) => isConf(app, model.id, l.id)).length : 0,
     }),
-    [loras, model, app],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loras, model, app, hasCentral, confirmedSet],
   );
 
   const list = useMemo(() => {
@@ -55,7 +86,7 @@ export default function LoraDialog({
     if (group === "aznten") base = base.filter((l) => l.entry?.isAznten);
     else if (group === "misc") base = base.filter((l) => l.entry && !l.entry?.isAznten && !l.entry?.isNsfw);
     else if (group === "nsfw") base = base.filter((l) => l.entry?.isNsfw);
-    else if (group === "confirmed") base = model ? base.filter((l) => isConfirmed(app, model.id, l.id)) : [];
+    else if (group === "confirmed") base = model ? base.filter((l) => isConf(app, model.id, l.id)) : [];
     if (s) {
       base = base.filter(
         (l) =>
@@ -66,8 +97,8 @@ export default function LoraDialog({
     }
     // Confirmed pairs first, then pinned, then family matches.
     return [...base].sort((a, b) => {
-      const ca = model && isConfirmed(app, model.id, a.id) ? 0 : 1;
-      const cb = model && isConfirmed(app, model.id, b.id) ? 0 : 1;
+      const ca = model && isConf(app, model.id, a.id) ? 0 : 1;
+      const cb = model && isConf(app, model.id, b.id) ? 0 : 1;
       if (ca !== cb) return ca - cb;
       const pa = pinned.includes(a.id) ? 0 : 1;
       const pb = pinned.includes(b.id) ? 0 : 1;
@@ -76,7 +107,8 @@ export default function LoraDialog({
       const mb = model && b.baseFamily && b.baseFamily === model.baseFamily ? 0 : 1;
       return ma - mb || a.name.localeCompare(b.name);
     });
-  }, [loras, q, group, pinned, model, app]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loras, q, group, pinned, model, app, hasCentral, confirmedSet]);
 
   /* Real resolution through the Worker, which reads the model card to find the
      weight file, base model and trigger words. Accepts any CivitAI mirror
@@ -211,8 +243,8 @@ export default function LoraDialog({
           <ul className="grid gap-2">
             {list.map((l) => {
               const on = pinned.includes(l.id);
-              const tier = model ? tierForOne(model, l, app) : null;
-              const confirmed = !!model && isConfirmed(app, model.id, l.id);
+              const tier = model ? tierOne(model, l, app) : null;
+              const confirmed = !!model && isConf(app, model.id, l.id);
               const fmt = insertFormat(app, l.entry || { repo_url: l.repo, file_url: l.entry?.file_url });
               return (
                 <li key={l.id}>
