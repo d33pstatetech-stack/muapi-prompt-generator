@@ -24,6 +24,9 @@ binding = "OUTPUTS_BUCKET"
 bucket_name = "genai-assets"
 
 [vars]
+# Rollback switch for Prompt Atlas guide injection. Set to "0" to disable
+# without a code change — see docs/prompt-atlas-rollback.md.
+GUIDE_INJECTION = "1"
 MUAPI_BASE_URL = "https://api.muapi.ai/api/v1"
 # Repos the /api/hf/file proxy may serve, as comma-separated owner/repo or
 # owner/* entries. EMPTY BY DEFAULT, and that is the correct setting unless you
