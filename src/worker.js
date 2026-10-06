@@ -122,11 +122,15 @@ function buildEnhancerSystemPrompt(raw, ctx) {
   // exists. Returns null when no guide matches — never a guess, because a
   // wrong guide would assert syntax the model does not support.
   const guideBlock = ctx.guideBlock;
-  if (guide) t += `\n\nModel-specific conventions (verified documentation for this exact model — follow them):\n${guide}`;
+  if (guideBlock) t += `\n\nModel-specific conventions (verified documentation for this exact model — follow them):\n${guideBlock}`;
   // Model-specific lightweight preset (additive, per advice, prioritizes replicate schema)
   const fam = (ctx.model || '').toLowerCase();
-  let preset = MODEL_PRESETS.default;
-  if (!guide) {
+  // A guide supersedes MODEL_PRESETS entirely, so the default must start as
+  // null here — seeding it with MODEL_PRESETS.default and then guarding only
+  // the overrides still appends the legacy preset to a guided prompt, giving
+  // the enhancer two contradictory sets of conventions at once.
+  let preset = guideBlock ? null : MODEL_PRESETS.default;
+  if (!guideBlock) {
     if (fam.includes('seedance')) preset = MODEL_PRESETS.seedance;
     else if (fam.includes('wan')) preset = MODEL_PRESETS.wan;
     else if (fam.includes('minimax') || fam.includes('hailuo')) preset = MODEL_PRESETS.minimax;
