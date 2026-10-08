@@ -12,6 +12,7 @@ import {
   estimateCost,
   fetchCustomLoras,
   fetchLibrary,
+  fetchLoraEvidence,
   fetchModels,
   fetchSchema,
   fetchVerifications,
@@ -21,6 +22,7 @@ import {
   withSchema,
 } from "./lib/api";
 import { tierFor } from "./lib/tiers";
+import { setRunEvidence } from "./lora-compat";
 import type { App } from "./lib/loraFormats";
 import { insertFormat } from "./lib/loraFormats";
 import { useMediaQuery, usePersistentState } from "./lib/hooks";
@@ -233,6 +235,22 @@ function Console() {
     fetchVerifications().then((rows) => {
       if (!live || !rows || !rows.length) return;
       setCentralVerifs(rows);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /* ---------------- K5: rated-run evidence → verified tier ------------------ */
+  /* LoRA+model pairs a person actually rated 4-5★ with the adapter loaded.
+     Installed AFTER central verifications so a seeded row keeps priority, and
+     never when the fetch fails or returns nothing — null/empty leaves every
+     verdict exactly as it was. */
+  useEffect(() => {
+    let live = true;
+    fetchLoraEvidence().then((payload) => {
+      if (!live || !payload) return;
+      setRunEvidence(payload);
     });
     return () => {
       live = false;

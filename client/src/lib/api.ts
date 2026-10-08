@@ -204,6 +204,13 @@ const api = {
     if (!res.ok) return [];
     return Array.isArray(d.verifications) ? d.verifications : [];
   },
+  evidenceList: async (): Promise<any | null> => {
+    const res = await fetch('/api/loras/evidence');
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return null;
+    if (!d || typeof d !== 'object' || (!Array.isArray(d.pairs) && !Array.isArray(d.norm))) return null;
+    return d;
+  },
 };
 
 /** Custom LoRAs stored server-side in D1 (shared across devices). */
@@ -232,6 +239,18 @@ export async function fetchLibrary(): Promise<any[] | null> {
 export async function fetchVerifications(): Promise<any[] | null> {
   try {
     return await api.verificationsList();
+  } catch {
+    return null;
+  }
+}
+
+/* K5 — LoRA↔model pairs proven by 4-5★ rated runs. Returns the whole payload
+   ({min_runs, min_solo, pairs, norm, scanned}); setRunEvidence installs only the
+   rows the Worker already flagged green. Fail-soft → null, which leaves every
+   compatibility verdict exactly as it was before the endpoint existed. */
+export async function fetchLoraEvidence(): Promise<any | null> {
+  try {
+    return await api.evidenceList();
   } catch {
     return null;
   }
