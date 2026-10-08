@@ -6,6 +6,7 @@
  * the backend cannot honestly supply are simply absent — see NOTES at the bottom.
  */
 import { modelFamily, modelIsVideo } from '../lora-compat';
+import { isLoraParam } from '../params';
 import type { Model, ModelSchema, ParamSpec } from './types';
 
 /* The Worker stores `group_of` with MuAPI's own vocabulary, which is far finer
@@ -79,6 +80,10 @@ export function toModel(row: Row, stats?: Stats): Model {
  * Fill in the two schema-derived fields once the real param schema arrives.
  *
  * `loraCapable`  — true when the schema declares a LoRA/adapter parameter.
+ *                  The gate is params.js isLoraParam, imported rather than
+ *                  copied: a second copy is how this drifted in the first
+ *                  place. It is type-aware, so a numeric `lora_rank` on a
+ *                  trainer is no longer read as an adapter slot.
  * `durationHint` — omitted entirely: no model in the catalogue declares a
  *                  `duration` parameter (verified against all 724 schemas),
  *                  so there is nothing real to show. The mockup's "~5s" text
@@ -86,20 +91,94 @@ export function toModel(row: Row, stats?: Stats): Model {
  */
 export function applySchema(model: Model, schema: ModelSchema | null): Model {
   if (!schema) return model;
-  const hasLora = Object.entries(schema.params).some(([name, spec]) => isLoraParam(name, spec));
+  const hasLora = Object.entries(schema.params).some(([name, spec]) => isLoraParam(name, spec as any));
   return { ...model, loraCapable: hasLora };
 }
 
-/* Mirrors params.js isLoraParam so the two stay in step; params.js is the
-   authority on what gets treated as an adapter at submit time. */
-function isLoraParam(name: string, spec: ParamSpec = {} as ParamSpec): boolean {
-  const n = String(name || '').toLowerCase();
-  if (n === 'extra_lora' || n === 'extra_lora_weights' || /(^|_)replicate_weights$/.test(n)) return true;
-  if (/scale|strength|weight|multiplier/.test(n)) return false;
-  if (/lora|loras|adapter/.test(n)) return true;
-  // `lora_list` is an array of adapter objects; its items carry a $ref.
-  if (spec.type === 'array' && /\$ref/i.test(JSON.stringify(spec.items ?? {}))) return true;
-  return false;
+/* ------------------------------------------------------------------
+   Tier A / Tier B — how much LoRA support a model actually has.
+
+   Tier A  the provider's own schema declares an adapter param. Verified.
+   Tier B  no adapter param in the schema, but the architecture is one this
+           catalogue is known to serve adapters for. UNVERIFIED, opt-in only.
+   none   no evidence at all. No LoRA UI.
+
+   TIER_B_FAMILIES is EMPTY for MuAPI, and that is a result, not an omission.
+   Queried live against the `muapi-models` D1 (765 models / 724 schemas):
+
+     WITH props AS (SELECT p.model_id mid, lower(je.key) k,
+                          lower(COALESCE(json_extract(je.value,'$.type'),'')) ty
+                   FROM model_params p, json_each(p.schema_json) je) ...
+     -- 20 of 724 models declare an adapter param, and EVERY ONE of their ids
+     -- contains "lora": flux-2-klein-9b-text-to-image-lora, sdxl-lora,
+     -- qwen-image-edit-lora, wan2.1-lora-t2v, z-image-*-lora, krea-v2-turbo-lora…
+
+   MuAPI splits each architecture into a base endpoint and a separate `-lora`
+   endpoint (flux-2-klein-9b vs flux-2-klein-9b-text-to-image-lora, sdxl-image vs
+   sdxl-lora, qwen-image vs qwen-image-text-to-image-lora). That split only
+   exists because the base endpoint does NOT take an adapter param — otherwise
+   the `-lora` twin would be redundant. So the 37 base models in those families
+   are the exact models an injected `extra_lora` would be rejected by, and they
+   get no LoRA input at all.
+
+   The families that looked plausible and were dropped for weak evidence:
+   z-image (its 3 `-lora` siblings are filed under family `image-generation`,
+   so `family` is not a reliable signal there), flux-3, sd-2/seedance,
+   hunyuan, qwen2 — none has a single non-trainer adapter model in the
+   catalogue.
+   ------------------------------------------------------------------ */
+const TIER_B_FAMILIES: ReadonlySet<string> = new Set<string>([]);
+
+export type LoraTier = 'A' | 'B' | null;
+
+/** What the UI needs to render an unverified adapter slot, or null. */
+export interface TierBLora {
+  /** Family key that qualified this model. */
+  family: string;
+  /** Why it is a candidate, in words a user can check. */
+  reason: string;
+}
+
+/**
+ * Tier B eligibility: a family on the allow-list, no adapter param in this
+ * model's own schema, and not a trainer (a trainer takes `lora_rank`, it does
+ * not load one).
+ */
+export function tierBLoraFor(model: Model | null, schema: ModelSchema | null): TierBLora | null {
+  if (!model || !schema) return null;
+  if (Object.entries(schema.params).some(([n, s]) => isLoraParam(n, s as any))) return null;
+  if (model._row && isTrainingRow(model._row as Row)) return null;
+  if (!TIER_B_FAMILIES.has(model.family)) return null;
+  return {
+    family: model.family,
+    reason: `The ${model.family} family serves adapters on other models in this catalogue, but ${model.name} declares no adapter parameter of its own.`,
+  };
+}
+
+function isTrainingRow(row: Row): boolean {
+  return row.group_of === 'training' || /train/i.test(String(row.id || ''));
+}
+
+/**
+ * Combined verdict, for the one line of copy the Composer shows.
+ *
+ * Derived from the schema rather than from `model.loraCapable`, so it cannot
+ * disagree with `tierBLoraFor` about the same model — the two used to read
+ * different sources (one the already-applied flag, one the live schema) and
+ * could report "no adapters" for a model whose merged schema clearly had one.
+ */
+export function loraTier(model: Model | null, schema: ModelSchema | null): LoraTier {
+  if (!model || !schema) return null;
+  if (Object.entries(schema.params).some(([n, s]) => isLoraParam(n, s as any))) return 'A';
+  return tierBLoraFor(model, schema) ? 'B' : null;
+}
+
+/** The adapter params this model's real schema declares. */
+export function adapterParams(schema: ModelSchema | null): string[] {
+  if (!schema) return [];
+  return Object.entries(schema.params)
+    .filter(([name, spec]) => isLoraParam(name, spec as any))
+    .map(([name]) => name);
 }
 
 /* ------------------------------------------------------------------
@@ -113,8 +192,11 @@ function isLoraParam(name: string, spec: ParamSpec = {} as ParamSpec): boolean {
    summary    -> REAL. models.description.
    group      -> REAL models.group_of, normalised (see GROUP_RULES).
    baseFamily -> REAL. Existing lora-compat modelFamily().
-   loraCapable-> REAL. Whether the model's own schema declares an adapter param
-                 (25 of 765 models do).
+loraCapable-> REAL. Whether the model's own schema declares an adapter param.
+                  Re-measured 2026-10-08 against all 724 live schemas with the
+                  type-aware gate: 20 models, not the 25/32 previously claimed.
+                  The old count was inflated by numeric `lora_rank` on four
+                  trainer endpoints.
    durationHint-> DISCARDED. Zero models declare a `duration` parameter, so
                  there is no real value to show. Not faked, not guessed.
    familyCount-> REAL, counted from the rows actually returned.
