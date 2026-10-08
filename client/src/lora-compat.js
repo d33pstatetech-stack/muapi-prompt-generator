@@ -57,23 +57,30 @@ export function normName(s) {
    NOTE: flux is tested before krea — flux-krea-dev is FLUX architecture.
    ------------------------------------------------------------------ */
 // Which FLUX generation a name declares, as the digit the word "flux" is
-// immediately followed by — and only 1 or 2 count.
+// immediately followed by — and only 1, 2 or 3 count.
 //
-// Restricting it to [12] is the whole point. An earlier draft read the run of
-// digits after "flux" as the version, which mis-read `hyper-flux-16step` as
-// "FLUX 16", `fofr/flux-2004` as "FLUX 2004" and `igorriti/flux-360` as
-// "FLUX 360", then shipped ~20 real FLUX.1 finetunes to the FLUX.2 bucket and
-// hid every FLUX.1 adapter from every FLUX.2 model. Those are all step counts,
-// years and pixel counts, not generations. A real generation marker is a bare
-// `flux-1` / `flux-2`, and nothing else.
-const FLUX_GEN = /\bflux\s?v?([12])(?![0-9])/;
+// Restricting it to a bare single digit is the whole point. An earlier draft
+// read the run of digits after "flux" as the version, which mis-read
+// `hyper-flux-16step` as "FLUX 16", `fofr/flux-2004` as "FLUX 2004" and
+// `igorriti/flux-360` as "FLUX 360", then shipped ~20 real FLUX.1 finetunes to
+// the FLUX.2 bucket and hid every FLUX.1 adapter from every FLUX.2 model.
+// Those are all step counts, years and pixel counts, not generations.
+//
+// The `(?![0-9])` guard is what keeps those out now that 3 is recognised:
+// `flux-16step`, `flux-2004`, `flux-360` and `flux-3000-steps` all start with a
+// digit in [123] but continue, so they still carry no version at all and stay
+// FLUX.1. A real generation marker is a bare `flux-1` / `flux-2` / `flux-3`
+// and nothing else — `flux-1.1-pro` reads FLUX.1 via the same rule.
+const FLUX_GEN = /\bflux\s?v?([123])(?![0-9])/;
 
 function familyOf(raw) {
   const s = normName(raw);
   if (!s) return null;
   if (s.includes('flux')) {
     const m = FLUX_GEN.exec(s);
-    return m && m[1] === '2' ? 'FLUX.2' : 'FLUX.1';
+    // No version at all is FLUX.1: every versionless FLUX model in these
+    // catalogues is one. A recognised generation keeps its own bucket.
+    return m ? `FLUX.${m[1]}` : 'FLUX.1';
   }
   if (s.includes('qwen')) return 'Qwen-Image';
   if (s.includes('krea')) return 'Krea';

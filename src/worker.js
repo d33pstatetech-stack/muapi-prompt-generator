@@ -1132,7 +1132,15 @@ async function handleApiRoute(request, env, path, ctx) {
     const aspectRatio = userParams.aspect_ratio || null;
     const resolution = userParams.resolution || (userParams.width && userParams.height ? `${userParams.width}x${userParams.height}` : null) || null;
     const duration = userParams.duration || null;
-    const hasAudio = !!(model.id.includes('seedance') || model.id.includes('wan') || model.family === 'seedance' || model.group_of === 'audio' || (model.id.includes('audio')));
+    // Audio is a property of video/audio targets, so it is gated on the
+    // RESOLVED modality, not sniffed from the id. The ungated expression gave
+    // every seeded image/text/training model whose id contains "wan" or
+    // "seedance" — 13 rows, including `wan2.5-image-edit`..`wan3.0-image-edit`
+    // and 7 `wan*-text-to-image` variants — the sound-effect and dialogue
+    // instructions. Same shape as wavespeed's derivation.
+    const audioCapable = model.group_of === 'audio' || mediaType === 'audio generation';
+    const hasAudio = audioCapable || (mediaTypeIsVideo(mediaType)
+      && !!(model.id.includes('seedance') || model.id.includes('wan') || model.family === 'seedance' || model.id.includes('audio')));
     const guide = await getPromptGuide(env, model);
     const ctx = { model: model.id, mediaType, aspectRatio, resolution, duration, hasAudio, guideBlock: guide && guide.block };
     const systemPrompt = buildEnhancerSystemPrompt(rawPrompt, ctx);

@@ -98,13 +98,19 @@ The image will be generated at [resolution] and [aspect ratio] (only include thi
     const params = window.currentParams || {};
     const schema = window.currentSchema || {};
     const def = schema.defaults || {};
+    const mediaType = deriveMediaType(model);
+    // Audio is a property of video/audio targets. Matching the id alone put the
+    // audio clause in front of image models such as `wan2.5-image-edit`.
+    const audioCapable = model.group_of === "audio" || mediaType === "audio generation";
+    const hasAudio = audioCapable || (mediaTypeIsVideo(mediaType)
+      && !!(model.id.includes("seedance") || model.id.includes("wan") || (model.group_of && model.group_of.includes("audio")) || (schema.params && schema.params.audio_url)));
     return {
       model: model.id,
-      mediaType: deriveMediaType(model),
+      mediaType,
       aspectRatio: params.aspect_ratio || def.aspect_ratio || null,
       resolution: params.resolution || (params.width && params.height ? `${params.width}x${params.height}` : null) || def.resolution || null,
       duration: params.duration || def.duration || null,
-      hasAudio: !!(model.id.includes("seedance") || model.id.includes("wan") || (model.group_of && model.group_of.includes("audio")) || (schema.params && schema.params.audio_url)),
+      hasAudio,
     };
   }
 
