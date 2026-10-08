@@ -32,6 +32,18 @@ export function normalizeGroup(row: Row): Model['group'] {
   return modelIsVideo(row) ? 'video' : 'image';
 }
 
+/**
+ * The `body.modality` the enhance request sends, or null when this model is
+ * neither image nor video (audio/3d/text — the Worker has no image/video
+ * template to override, so it should derive the media type itself).
+ */
+export function modelModality(m: Model | null): 'image' | 'video' | null {
+  if (!m) return null;
+  if (m.group === 'video') return 'video';
+  if (m.group === 'image') return 'image';
+  return null;
+}
+
 /** Real usage counts and average ratings, keyed by model id. */
 export type Stats = Map<string, { runs: number; rating: number | null }>;
 

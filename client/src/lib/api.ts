@@ -6,7 +6,7 @@
  * the failure instead of inventing models.
  */
 import { fetchModels as fetchRows, fetchModelStats, estimateCost as postEstimate, streamEnhance as postEnhance, submitGenerate, pollPrediction } from '../api';
-import { applySchema, toModel } from './models';
+import { applySchema, toModel, modelModality } from './models';
 import type { Lora, Model, ModelSchema } from './types';
 
 type Stats = Map<string, { runs: number; rating: number | null }>;
@@ -77,7 +77,9 @@ export async function estimateCost(model: Model | null, params: Record<string, u
 
 /**
  * Real streaming enhancement through the Worker's SSE route, which walks the
- * configured OpenRouter -> Venice provider chain.
+ * configured provider chain. The selected model's own group is sent as
+ * `modality` so the Worker picks the image or video template from the client's
+ * reading rather than only its own derivation.
  */
 export async function streamEnhance(
   rawPrompt: string,
@@ -86,7 +88,7 @@ export async function streamEnhance(
   signal?: AbortSignal,
   params: Record<string, unknown> = {},
 ): Promise<{ text: string; providerUsed: string; modelUsed: string; historyId: number | null }> {
-  return postEnhance({ rawPrompt, modelId: model?.id || '', params, signal, onToken, onMeta: () => {} });
+  return postEnhance({ rawPrompt, modelId: model?.id || '', params, modality: modelModality(model), signal, onToken, onMeta: () => {} });
 }
 
 export interface SubmitResult {
