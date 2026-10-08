@@ -37,6 +37,32 @@ export function setCentralVerified(pairs) {
   else centralVerified = null;
 }
 
+/**
+ * Narrow a `lora_verifications` payload to the pairs muapi itself ran.
+ *
+ * `lora_verifications` is shared across the three apps and a `model_id` is
+ * only meaningful inside the app that produced it, so an unfiltered install
+ * would let a pair verified on replicate turn green here on the strength of a
+ * run that never happened on muapi. Mirrors the app filter `confirmedSet` in
+ * App.tsx applies for the same reason.
+ *
+ * K5's cross-provider transfer is a different feature and is gated on family
+ * plus modality inside the Worker, not here.
+ *
+ * Rows missing either half are dropped rather than passed through: an
+ * unnormalisable pair can only ever fail to match, so keeping it would buy
+ * nothing and cost a lookup.
+ *
+ * Kept here, next to the store it feeds, so the scoping and the tier it
+ * selects cannot drift apart.
+ */
+export function muapiVerifiedPairs(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((v) => v && v.app === 'muapi' && v.lora_id && v.model_id)
+    .map((v) => ({ lora: String(v.lora_id), model: String(v.model_id) }));
+}
+
 /* ------------------------------------------------------------------
    normName — the ONE normalisation behind every identity comparison.
 

@@ -22,7 +22,7 @@ import {
   withSchema,
 } from "./lib/api";
 import { tierFor } from "./lib/tiers";
-import { setCentralVerified, setRunEvidence } from "./lora-compat";
+import { setCentralVerified, setRunEvidence, muapiVerifiedPairs } from "./lora-compat";
 import type { App } from "./lib/loraFormats";
 import { insertFormat } from "./lib/loraFormats";
 import { useMediaQuery, usePersistentState } from "./lib/hooks";
@@ -236,10 +236,8 @@ function Console() {
         if (!live || !rows || !rows.length) return;
         setCentralVerifs(rows);
         // Install the same rows into lora-compat so a run-confirmed pair goes
-        // green in the traffic light, matching replicate and wavespeed. The
-        // rows are typed `any[]` by the api layer on purpose: the verdict must
-        // not change when the row shape grows a column.
-        setCentralVerified(rows.map((v: any) => ({ lora: String(v.lora_id), model: String(v.model_id) })));
+        // green in the traffic light, matching replicate and wavespeed.
+        setCentralVerified(muapiVerifiedPairs(rows));
       });
       return () => {
         live = false;
