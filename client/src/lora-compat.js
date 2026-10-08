@@ -10,6 +10,34 @@
 import { VERIFIED_LORA_RUNS } from './loras-data.js';
 
 /* ------------------------------------------------------------------
+   Central verifications — `lora_verifications` rows served by
+   GET /api/loras/verifications. Run-confirmed pairs, so they outrank
+   every heuristic below.
+
+   null means "no central data installed" and every probe falls through
+   to the baked list, so behaviour is byte-identical to before. Install
+   with an array, clear by passing null.
+
+   App-filtered on the server (the `app` column), which is why this is
+   separate from the K5 runEvidence store: that one is deliberately
+   provider-agnostic so evidence transfers across apps.
+   ------------------------------------------------------------------ */
+let centralVerified = null;
+
+// Verified-pair key. Both halves go through normName on the way in AND on the
+// way out, so a key built here is order-independent of separator styling.
+function verifiedKey(modelId, loraId) {
+  return `${normName(modelId)}|${normName(loraId)}`;
+}
+
+/** Install central verified pairs (`null` clears back to baked-only). */
+export function setCentralVerified(pairs) {
+  if (pairs == null) centralVerified = null;
+  else if (Array.isArray(pairs)) centralVerified = new Set(pairs.filter((p) => p && p.lora && p.model).map((p) => verifiedKey(p.model, p.lora)));
+  else centralVerified = null;
+}
+
+/* ------------------------------------------------------------------
    normName — the ONE normalisation behind every identity comparison.
 
    Why it exists: providers spell the same model half a dozen ways
@@ -269,12 +297,16 @@ export function evidenceVerdict(lora, model, modelId) {
 }
 
 export function compatibility(lora, model, modelId) {
-  if (!lora) return 'no';
-  const lid = normName(lora.id);
-  const mid = normName(modelId);
-  if (mid && (VERIFIED_LORA_RUNS || []).some((v) => normName(v.lora) === lid && normName(v.model) === mid)) {
-    return 'verified';
-  }
+    if (!lora) return 'no';
+    const lid = normName(lora.id);
+    const mid = normName(modelId);
+    // Central verifications first; baked VERIFIED_LORA_RUNS remains as fallback.
+    if (mid && centralVerified && centralVerified.size > 0 && centralVerified.has(verifiedKey(mid, lid))) {
+      return 'verified';
+    }
+    if (mid && (VERIFIED_LORA_RUNS || []).some((v) => normName(v.lora) === lid && normName(v.model) === mid)) {
+      return 'verified';
+    }
   // K5: a user-rated 4-5 star run with this adapter loaded outranks every
   // heuristic below. hardVeto() inside means a pair the family / pipeline /
   // version gates would call 'no' stays 'no' — evidence can promote 'likely'
