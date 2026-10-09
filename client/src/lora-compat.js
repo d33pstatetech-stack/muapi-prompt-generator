@@ -18,9 +18,10 @@ import { VERIFIED_LORA_RUNS } from './loras-data.js';
    to the baked list, so behaviour is byte-identical to before. Install
    with an array, clear by passing null.
 
-   App-filtered on the server (the `app` column), which is why this is
-   separate from the K5 runEvidence store: that one is deliberately
-   provider-agnostic so evidence transfers across apps.
+   The server returns shared rows with an `app` column; clients must filter to
+   their own app before installing, which is why this is separate from the K5
+   runEvidence store: that one is deliberately provider-agnostic so evidence
+   transfers across apps.
    ------------------------------------------------------------------ */
 let centralVerified = null;
 
@@ -323,16 +324,16 @@ export function evidenceVerdict(lora, model, modelId) {
 }
 
 export function compatibility(lora, model, modelId) {
-    if (!lora) return 'no';
-    const lid = normName(lora.id);
-    const mid = normName(modelId);
-    // Central verifications first; baked VERIFIED_LORA_RUNS remains as fallback.
-    if (mid && centralVerified && centralVerified.size > 0 && centralVerified.has(verifiedKey(mid, lid))) {
-      return 'verified';
-    }
-    if (mid && (VERIFIED_LORA_RUNS || []).some((v) => normName(v.lora) === lid && normName(v.model) === mid)) {
-      return 'verified';
-    }
+  if (!lora) return 'no';
+  const lid = normName(lora.id);
+  const mid = normName(modelId);
+  // Central verifications first; baked VERIFIED_LORA_RUNS remains as fallback.
+  if (mid && centralVerified && centralVerified.size > 0 && centralVerified.has(verifiedKey(mid, lid))) {
+    return 'verified';
+  }
+  if (mid && (VERIFIED_LORA_RUNS || []).some((v) => normName(v.lora) === lid && normName(v.model) === mid)) {
+    return 'verified';
+  }
   // K5: a user-rated 4-5 star run with this adapter loaded outranks every
   // heuristic below. hardVeto() inside means a pair the family / pipeline /
   // version gates would call 'no' stays 'no' — evidence can promote 'likely'

@@ -228,21 +228,21 @@ function Console() {
     };
   }, []);
 
-    /* ---------------- central verifications: confirmed badges first ---------- */
-    /* Null/empty → badges fall back to baked CONFIRMED/VERIFIED lists. */
-    useEffect(() => {
-      let live = true;
-      fetchVerifications().then((rows) => {
-        if (!live || !rows || !rows.length) return;
-        setCentralVerifs(rows);
-        // Install the same rows into lora-compat so a run-confirmed pair goes
-        // green in the traffic light, matching replicate and wavespeed.
-        setCentralVerified(muapiVerifiedPairs(rows));
-      });
-      return () => {
-        live = false;
-      };
-    }, []);
+  /* ---------------- central verifications: confirmed badges first ---------- */
+  /* Null/empty → badges fall back to baked CONFIRMED/VERIFIED lists. */
+  useEffect(() => {
+    let live = true;
+    fetchVerifications().then((rows) => {
+      if (!live || !rows || !rows.length) return;
+      setCentralVerifs(rows);
+      // Install the same rows into lora-compat so a run-confirmed pair goes
+      // green in the traffic light, matching replicate and wavespeed.
+      setCentralVerified(muapiVerifiedPairs(rows));
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /* ---------------- K5: rated-run evidence → verified tier ------------------ */
   /* LoRA+model pairs a person actually rated 4-5★ with the adapter loaded.

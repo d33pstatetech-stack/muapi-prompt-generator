@@ -236,13 +236,13 @@ export async function fetchLibrary(): Promise<any[] | null> {
 
 /* Run-confirmed LoRA ↔ model pairs. Fail-soft → null; callers fall back to
    baked CONFIRMED/VERIFIED lists when central is null or empty. */
-  export async function fetchVerifications(): Promise<any[] | null> {
-    try {
-      return await api.verificationsList();
-    } catch {
-      return null;
-    }
+export async function fetchVerifications(): Promise<any[] | null> {
+  try {
+    return await api.verificationsList();
+  } catch {
+    return null;
   }
+}
 
 /* K5 — LoRA↔model pairs proven by 4-5★ rated runs. Returns the whole payload
    ({min_runs, min_solo, pairs, norm, scanned}); setRunEvidence installs only the
